@@ -1,0 +1,141 @@
+<?xml version="1.0"?>
+<openerp>
+    <data>
+
+        <menuitem name="FnxFS" id="fnx_file_system"/>
+
+        <record model="ir.ui.view" id="fnx_fs_form">
+            <field name="name">File System</field>
+            <field name="model">fnx_fs.files</field>
+            <field name="type">form</field>
+            <field name="arch" type="xml">
+                <form string="File System" version="7.0">
+                    <header>
+                        <button string="Refresh" name="_scan_fs" type="object"/>
+                    </header>
+                    <sheet string="Files">
+                        <group>
+                            <group>
+                                <field name="user_id" attrs="{'readonly':True}"/>
+                                <field name="filepath" attrs="{'readonly':True}"/>
+                                <field name="filename" attrs="{'readonly':True}"/>
+                            </group>
+                            <!--
+                            <group>
+                                <field name="image_small" widget='image' class="oe_image oe_right" nolabel="1" attrs="{'readonly':True}"/>
+                                <field name="status" attrs="{'readonly':True, 'invisible':[('status','!=','unable to contact')]}" nolabel="1"/>
+                            </group> -->
+                        </group>
+                    <notebook colspan="4">
+                        <page string="Shared To">
+                        </page>
+                        <page string="History">
+                        </page>
+                    </notebook>
+                    <group string="Notes">
+                        <field name="notes" nolabel="1"/>
+                    </group>
+                </sheet>
+                </form>
+            </field>
+        </record>
+
+        <!--
+        <record model="ir.ui.view" id="view_status_kanban">
+            <field name="name">status.pcs.kanban</field>
+            <field name="model">status.pcs</field>
+            <field name="arch" type="xml">
+                <kanban version="7.0" class="oe_background_grey" create="false">
+                    <field name="status"/>
+                    <field name="ip_address"/>
+                    <field name="image_small"/>
+                    <templates>
+                        <t t-name="kanban-box" t-attf-class="base #{cls}">
+                            <div class="oe_kanban_box_content oe_kanban_global_click">
+                                <img t-att-src="kanban_image('status.pcs', 'image_small', record.id.value)" class="oe_kanban_image"/>
+                                <div>
+                                        <h4><field name="ip_address"/></h4>
+                                    <button type="object" name="get_status">Refresh</button>
+                                </div>
+                            </div>
+                        </t>
+                    </templates>
+                </kanban>
+            </field>
+        </record> -->
+
+        <record id="search_fnx_fs_filter" model="ir.ui.view">
+            <field name="name">fnx_fs.files.select</field>
+            <field name="model">fnx_fs.files</field>
+            <field name="arch" type="xml">
+                <search string="Search Files">
+                    <!--
+                    <field name="category" string="Function" filter_domain="[(1,'=',1)]"/>
+                    <field name="status" string="Status" filter_domain="[(1,'=',1)]"/>
+                    <field name="feedback" string="Communicated" filter_domain="[(1,'=',1)]"/>
+                    -->
+                    <filter string="My Files" domain="[]" context="[('user_id','=',uid)]"/>
+                    <separator/>
+                    <filter string="Shared By" domain="[]" context="[(1,'=',1)]"/>
+                    <filter string="Location" domain="[]" context="[(1,'=',1)]"/>
+                    <group expand="0" string="Group By...">
+                        <filter string="Shared By" domain="[]" context="{'group_by':'user_id'}"/>
+                        <filter string="Location" domain="[]" context="{'group_by':'filepath'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <record model="ir.ui.view" id="fnx_fs_files_tree">
+            <field name="name">Files</field>
+            <field name="model">fnx_fs.files</field>
+            <field name="arch" type="xml">
+                <tree string="Files" create="false" version="7.0">
+                    <field name="filepath"/>
+                    <field name="filename"/>
+                </tree>
+            </field>
+        </record>
+
+        <record model="ir.actions.act_window" id="action_fnx_fs_files">
+            <field name="name">Files</field>
+            <field name="res_model">fnx_fs.files</field>
+            <field name="view_type">form</field>
+            <field name="view_id" ref="fnx_fs_form"/>
+            <field name="view_mode">list,form</field>
+        </record>
+
+        <menuitem
+            name="File System" 
+            id="fnx_fs_main" 
+            parent="fnx_file_system" 
+            sequence="10"
+            />
+
+        <menuitem
+            name="Files"
+            id="files_fnx_fs"
+            parent="fnx_fs_main"
+            action="action_fnx_fs_files"
+            sequence="10"
+            groups="group_fnx_fs"
+            />
+
+    </data>
+
+    <data noupdate="1">
+        <record model="ir.cron" id="fnx_fs_files_update">
+            <field name="name">Fnx FS Files Update</field>
+            <field name="interval_number">30</field>
+            <field name="interval_type">minutes</field>
+            <field name="numbercall">-1</field>
+            <field name="doall" eval="False"/>
+            <field name="model" eval="'fnx_fs.files'"/>
+            <field name="function" eval="'_scan_fs'"/>
+            <field name="args" eval="'()'"/>
+            <field name="nextcall" eval="'2013-07-31 00:00:00'"/>
+            <field name="priority">100</field>
+        </record>
+    </data>
+
+</openerp>

@@ -1,0 +1,2 @@
+"id","name","model_id:id","group_id:id","perm_read","perm_write","perm_create","perm_unlink"
+"access_fnx_fs","fnx_fs.files","model_fnx_fs_files","fnx_fs.group_fnx_fs",1,1,1,1

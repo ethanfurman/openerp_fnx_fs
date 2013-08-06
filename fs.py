@@ -1,16 +1,10 @@
 import logging
-import subprocess
-import oe_xid as xid
-from dbf import DateTime
-from datetime import datetime
-from ipaddress import IPv4Network, IPv4Address
 import os
-from osv import osv, fields
-from openerp import tools, SUPERUSER_ID as SUPERUSER
 import re
-from base64 import b64decode
+from fenx import check_company_settings
+from fenx.path import Path
+from osv import osv, fields
 from pwd import getpwuid
-from VSS.path import Path, listdir
 
 _logger = logging.getLogger(__name__)
 
@@ -29,8 +23,8 @@ class fnx_fs(osv.Model):
         _logger.info('status._scan_fs starting...')
         res_users = self.pool.get('res.users')
         # get networks to scan
-        prefix = xid.check_company_settings(self, cr, uid, ('prefix', 'File System', CONFIG_ERROR))['prefix']
-        regex = xid.check_company_settings(self, cr, uid, ('pattern', 'File System', CONFIG_ERROR))['pattern']
+        prefix = check_company_settings(self, cr, uid, ('prefix', 'File System', CONFIG_ERROR))['prefix']
+        regex = check_company_settings(self, cr, uid, ('pattern', 'File System', CONFIG_ERROR))['pattern']
         # get known pcs
         current_files = []
         results = []

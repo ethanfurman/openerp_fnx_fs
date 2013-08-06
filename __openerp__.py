@@ -10,6 +10,7 @@
     'website': 'www.openerp.com',
     'depends': [
             'base',
+            'fenx',
             'mail',
         ],
     'js': [

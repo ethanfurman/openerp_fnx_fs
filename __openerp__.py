@@ -1,6 +1,6 @@
 {
    'name': 'Fnx File System',
-    'version': '0.1',
+    'version': '0.2',
     'category': 'Generic Modules',
     'description': """\
             Phoenix file management system.
@@ -10,8 +10,7 @@
     'website': 'www.openerp.com',
     'depends': [
             'base',
-            'fenx',
-            'mail',
+            'fnx',
         ],
     'js': [
         ],

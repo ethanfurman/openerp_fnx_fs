@@ -2,9 +2,9 @@
 <openerp>
     <data>
 
-        <record id="view_file_system_config_settings" model="ir.ui.view">
+        <record id="view_fnx_fs_settings" model="ir.ui.view">
             <field name="name">Fnx File System Integration</field>
-            <field name="model">file_system.config.settings</field>
+            <field name="model">fnx_fs.config.settings</field>
             <field name="arch" type="xml">
                 <form string="Configure fnx_fs" version="7.0" class="oe_form_configuration">
                     <header>
@@ -35,16 +35,16 @@
             </field>
         </record>
 
-        <record id="action_file_system_config" model="ir.actions.act_window">
-            <field name="name">Configure File System Integration</field>
+        <record id="action_fnx_fs_config" model="ir.actions.act_window">
+            <field name="name">Configure FnxFS Integration</field>
             <field name="type">ir.actions.act_window</field>
-            <field name="res_model">file_system.config.settings</field>
+            <field name="res_model">fnx_fs.config.settings</field>
             <field name="view_mode">form</field>
             <field name="target">inline</field>
         </record>
 
-        <menuitem id="menu_file_system_config" name="Fnx FS" parent="base.menu_config"
-            sequence="14" action="action_file_system_config"/>
+        <menuitem id="menu_fnx_fs_config" name="Fnx FS" parent="base.menu_config"
+            sequence="14" action="action_fnx_fs_config"/>
 
     </data>
 </openerp>

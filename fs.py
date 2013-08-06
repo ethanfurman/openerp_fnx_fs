@@ -1,8 +1,8 @@
 import logging
 import os
 import re
-from fenx import check_company_settings
-from fenx.path import Path
+from fnx import check_company_settings
+from fnx.path import Path
 from osv import osv, fields
 from pwd import getpwuid
 

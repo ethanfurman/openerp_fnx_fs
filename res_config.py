@@ -1,7 +1,7 @@
 from openerp.osv import fields, osv
 
-class file_system_config_settings(osv.osv_memory):
-    _name = 'file_system.config.settings'
+class fnx_fs_config_settings(osv.osv_memory):
+    _name = 'fnx_fs.config.settings'
     _inherit = "res.config.settings"
     _columns = {
             'company_id': fields.many2one('res.company', 'Company', required=True),
@@ -10,7 +10,7 @@ class file_system_config_settings(osv.osv_memory):
     }
 
     def create(self, cr, uid, values, context=None):
-        id = super(file_system_config_settings, self).create(cr, uid, values, context)
+        id = super(fnx_fs_config_settings, self).create(cr, uid, values, context)
         # Hack: to avoid some nasty bug, related fields are not written upon record creation.
         # Hence we write on those fields here.
         vals = {}

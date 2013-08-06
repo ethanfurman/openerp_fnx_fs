@@ -10,7 +10,7 @@
     'website': 'www.openerp.com',
     'depends': [
             'base',
-            'board',
+            'mail',
         ],
     'js': [
         ],

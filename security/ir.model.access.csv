@@ -1,2 +1,6 @@
 "id","name","model_id:id","group_id:id","perm_read","perm_write","perm_create","perm_unlink"
-"access_fnx_fs","fnx_fs.files","model_fnx_fs_files","fnx_fs.group_fnx_fs",1,1,1,1
+"access_fnx_fs_files_consumer","fnx.fs.files","model_fnx_fs_files","group_fnx_fs_consumer",1,0,0,0
+"access_fnx_fs_files_creator","fnx.fs.files","model_fnx_fs_files","group_fnx_fs_creator",1,1,1,0
+"access_fnx_fs_files_manager","fnx.fs.files","model_fnx_fs_files","group_fnx_fs_manager",1,1,1,1
+"access_fnx_fs_folders_consumer","fnx.fs.folders","model_fnx_fs_folders","group_fnx_fs_consumer",1,0,0,0
+"access_fnx_fs_folders_manager","fnx.fs.folders","model_fnx_fs_folders","group_fnx_fs_manager",1,1,1,1

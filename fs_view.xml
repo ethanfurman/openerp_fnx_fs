@@ -2,34 +2,95 @@
 <openerp>
     <data>
 
-        <menuitem name="FnxFS" id="fnx_file_system"/>
+        <menuitem name="FnxFS" id="fnx_file_system" groups="group_fnx_fs_consumer"/>
 
-        <record model="ir.ui.view" id="fnx_fs_form">
-            <field name="name">File System</field>
-            <field name="model">fnx_fs.files</field>
-            <field name="type">form</field>
+        <record model="ir.ui.view" id="fnx_fs_folders_tree">
+            <field name="name">Folders</field>
+            <field name="model">fnx.fs.folders</field>
+            <field name="arch" type="xml">
+                <tree string="Folders" version="7.0">
+                    <field name="name"/>
+                    <field name="description"/>
+                </tree>
+            </field>
+        </record>
+
+        <record model="ir.ui.view" id="fnx_fs_folders_form">
+            <field name="name">Folders</field>
+            <field name="model">fnx.fs.folders</field>
+            <field name="arch" type="xml">
+                <form string="Folders" version="7.0">
+                    <group>
+                        <field name="name"/>
+                        <field name="description"/>
+                    </group>
+                    <notebook colspan="4">
+                        <page string="Files">
+                            <field name="file_ids" nolabel="1" options="{'create':False, 'create_edit':False}">
+                                <tree version="7.0">
+                                    <field name="file_name"/>
+                                    <field name="user_id"/>
+                                </tree>
+                            </field>
+                        </page>
+                    </notebook>
+                </form>
+            </field>
+        </record>
+
+        <record model="ir.ui.view" id="fnx_fs_files_list">
+            <field name="name">Files</field>
+            <field name="model">fnx.fs.files</field>
+            <field name="arch" type="xml">
+                <tree string="Files" version="7.0">
+                    <field name="folder_id"/>
+                    <field name="file_name"/>
+                </tree>
+            </field>
+        </record>
+
+        <record model="ir.ui.view" id="fnx_fs_files_form">
+            <field name="name">Files</field>
+            <field name="model">fnx.fs.files</field>
             <field name="arch" type="xml">
                 <form string="File System" version="7.0">
                     <header>
-                        <button string="Refresh" name="_scan_fs" type="object"/>
+                        <button string="Refresh/Update" name="_scan_fs" type="object"/>
                     </header>
                     <sheet string="Files">
                         <group>
                             <group>
-                                <field name="user_id" attrs="{'readonly':True}"/>
-                                <field name="filepath" attrs="{'readonly':True}"/>
-                                <field name="filename" attrs="{'readonly':True}"/>
+                                <field name="user_id" attrs="{'readonly':True}" widget="selection" options="{'create':False, 'create_edit':False, 'limit':15}"/>
+                                <field name="source_file"/>
+                                <field name="folder_id" widget="selection"/>
                             </group>
-                            <!--
-                            <group>
-                                <field name="image_small" widget='image' class="oe_image oe_right" nolabel="1" attrs="{'readonly':True}"/>
-                                <field name="status" attrs="{'readonly':True, 'invisible':[('status','!=','unable to contact')]}" nolabel="1"/>
-                            </group> -->
                         </group>
                     <notebook colspan="4">
                         <page string="Shared To">
+                            <group colspan="2">
+                                <group>
+                                    <field name="readonly_ids" nolabel="1">
+                                        <tree>
+                                            <field name="name" string="Read Only Users"/>
+                                        </tree>
+                                    </field>
+                                </group>
+                                <group>
+                                    <field name="readwrite_ids" nolabel="1">
+                                        <tree>
+                                            <field name="name" string="Read/Write Users"/>
+                                        </tree>
+                                    </field>
+                                </group>
+                            </group>
                         </page>
-                        <page string="History">
+                        <page string="Debugging (other fields)">
+                            <field name="edit_url" widget="url"/>
+                            <field name="share_url" widget="url"/>
+                            <field name="ip_addr"/>
+                            <field name="file_path"/>
+                            <field name="file_name"/>
+                            <field name="indexed_text"/>
                         </page>
                     </notebook>
                     <group string="Notes">
@@ -40,33 +101,9 @@
             </field>
         </record>
 
-        <!--
-        <record model="ir.ui.view" id="view_status_kanban">
-            <field name="name">status.pcs.kanban</field>
-            <field name="model">status.pcs</field>
-            <field name="arch" type="xml">
-                <kanban version="7.0" class="oe_background_grey" create="false">
-                    <field name="status"/>
-                    <field name="ip_address"/>
-                    <field name="image_small"/>
-                    <templates>
-                        <t t-name="kanban-box" t-attf-class="base #{cls}">
-                            <div class="oe_kanban_box_content oe_kanban_global_click">
-                                <img t-att-src="kanban_image('status.pcs', 'image_small', record.id.value)" class="oe_kanban_image"/>
-                                <div>
-                                        <h4><field name="ip_address"/></h4>
-                                    <button type="object" name="get_status">Refresh</button>
-                                </div>
-                            </div>
-                        </t>
-                    </templates>
-                </kanban>
-            </field>
-        </record> -->
-
         <record id="search_fnx_fs_filter" model="ir.ui.view">
-            <field name="name">fnx_fs.files.select</field>
-            <field name="model">fnx_fs.files</field>
+            <field name="name">fnx.fs.files.select</field>
+            <field name="model">fnx.fs.files</field>
             <field name="arch" type="xml">
                 <search string="Search Files">
                     <!--
@@ -80,28 +117,33 @@
                     <filter string="Location" domain="[]" context="[(1,'=',1)]"/>
                     <group expand="0" string="Group By...">
                         <filter string="Shared By" domain="[]" context="{'group_by':'user_id'}"/>
-                        <filter string="Location" domain="[]" context="{'group_by':'filepath'}"/>
+                        <filter string="Location" domain="[]" context="{'group_by':'file_path'}"/>
                     </group>
                 </search>
             </field>
         </record>
 
-        <record model="ir.ui.view" id="fnx_fs_files_tree">
-            <field name="name">Files</field>
-            <field name="model">fnx_fs.files</field>
-            <field name="arch" type="xml">
-                <tree string="Files" create="false" version="7.0">
-                    <field name="filepath"/>
-                    <field name="filename"/>
-                </tree>
-            </field>
+        <record model="ir.actions.act_window" id="action_fnx_fs_folders">
+            <field name="name">Folders</field>
+            <field name="res_model">fnx.fs.folders</field>
+            <field name="view_type">form</field>
+            <field name="view_id" ref="fnx_fs_folders_tree"/>
+            <field name="view_mode">tree,form</field>
         </record>
 
         <record model="ir.actions.act_window" id="action_fnx_fs_files">
             <field name="name">Files</field>
-            <field name="res_model">fnx_fs.files</field>
+            <field name="res_model">fnx.fs.files</field>
             <field name="view_type">form</field>
-            <field name="view_id" ref="fnx_fs_form"/>
+            <field name="view_id" ref="fnx_fs_files_list"/>
+            <field name="view_mode">list,form</field>
+        </record>
+
+        <record model="ir.actions.act_window" id="action_fnx_fs_my_files">
+            <field name="name">Files</field>
+            <field name="res_model">fnx.fs.files</field>
+            <field name="view_type">form</field>
+            <field name="view_id" ref="fnx_fs_files_list"/>
             <field name="view_mode">list,form</field>
         </record>
 
@@ -113,12 +155,29 @@
             />
 
         <menuitem
+            name="Folders"
+            id="fnx_fs_folders"
+            parent="fnx_fs_main"
+            action="action_fnx_fs_folders"
+            sequence="10"
+            />
+
+        <menuitem
             name="Files"
-            id="files_fnx_fs"
+            id="fnx_fs_files"
             parent="fnx_fs_main"
             action="action_fnx_fs_files"
-            sequence="10"
-            groups="group_fnx_fs"
+            groups="group_fnx_fs_consumer"
+            sequence="20"
+            />
+
+        <menuitem
+            name="My Shared Files"
+            id="fnx_fs_my_files"
+            parent="fnx_fs_main"
+            action="action_fnx_fs_my_files"
+            groups="group_fnx_fs_creator"
+            sequence="30"
             />
 
     </data>
@@ -130,7 +189,7 @@
             <field name="interval_type">minutes</field>
             <field name="numbercall">-1</field>
             <field name="doall" eval="False"/>
-            <field name="model" eval="'fnx_fs.files'"/>
+            <field name="model" eval="'fnx.fs.files'"/>
             <field name="function" eval="'_scan_fs'"/>
             <field name="args" eval="'()'"/>
             <field name="nextcall" eval="'2013-07-31 00:00:00'"/>

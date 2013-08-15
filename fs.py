@@ -146,13 +146,12 @@ class fnx_fs_files(osv.Model):
             values[rec.id]['share_url'] = 'file:///home/oeshare/%s/%s' % (virtual_folder, src_file.filename)
         return values
 
+    def create(self, cr, uid, values, context=None):
+        new_id = super(fnx_fs_files, self).create(cr, uid, values, context=context)
+        self._write_fnx_fs_request(cr, uid, [new_id], context=context)
+        return new_id
+
     def write(self, cr, uid, ids, values, context=None):
-        print self
-        print cr
-        print uid
-        print ids
-        print values
-        print context
         success = super(fnx_fs_files, self).write(cr, uid, ids, values, context=context)
         if success:
             self._write_fnx_fs_request(cr, uid, ids, context=context)
@@ -163,7 +162,6 @@ class fnx_fs_files(osv.Model):
         for id in ids:
             lines = []
             record = self.browse(cr, uid, [id], context=context)[0]
-            print '\n', record.readonly_ids, '\n'
             ip_addr = record.ip_addr
             file_path = Path(record.file_path)
             file_name = Path(record.file_name)

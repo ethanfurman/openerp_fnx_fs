@@ -62,7 +62,9 @@
                         <group>
                             <group>
                                 <field name="user_id" attrs="{'readonly':True}" widget="selection" options="{'create':False, 'create_edit':False, 'limit':15}"/>
-                                <field name="source_file"/>
+                                <field name="source_file" class="oe_inline oe_left" />
+                                <field name="entire_folder" class="oe_inline oe_left"/>
+                                <field name="shared_as" class="oe_inline oe_left" />
                                 <field name="folder_id" widget="selection"/>
                             </group>
                         </group>
@@ -70,14 +72,17 @@
                         <page string="Shared To">
                             <group colspan="2">
                                 <group>
-                                    <field name="readonly_ids" nolabel="1">
+                                    <field name="readonly_type"/>
+                                    <field name="readonly_ids" nolabel="1" attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2">
                                         <tree>
                                             <field name="name" string="Read Only Users"/>
                                         </tree>
                                     </field>
                                 </group>
                                 <group>
-                                    <field name="readwrite_ids" nolabel="1">
+                                    <separator attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2"/>
+                                    <separator attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2"/>
+                                    <field name="readwrite_ids" nolabel="1" colspan="2">
                                         <tree>
                                             <field name="name" string="Read/Write Users"/>
                                         </tree>
@@ -91,6 +96,8 @@
                             <field name="ip_addr"/>
                             <field name="file_path"/>
                             <field name="file_name"/>
+                            <field name="source_file"/>
+                            <field name="shared_as"/>
                             <field name="indexed_text"/>
                         </page>
                     </notebook>

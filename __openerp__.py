@@ -14,6 +14,7 @@
         ],
     'js': [
         ],
+    'css':['static/src/css/field_binary_css.css',],
     'update_xml': [
             'security/security.xml',
             'security/ir.model.access.csv',

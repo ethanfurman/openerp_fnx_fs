@@ -124,8 +124,8 @@
                     <filter string="Shared By" domain="[]" context="[(1,'=',1)]"/>
                     <filter string="Location" domain="[]" context="[(1,'=',1)]"/>
                     <group expand="0" string="Group By...">
+                        <filter string="Folder" domain="[]" context="{'group_by':'folder_id'}"/>
                         <filter string="Shared By" domain="[]" context="{'group_by':'user_id'}"/>
-                        <filter string="Location" domain="[]" context="{'group_by':'folder_id'}"/>
                     </group>
                 </search>
             </field>

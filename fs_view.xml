@@ -62,10 +62,11 @@
                         <group>
                             <group>
                                 <field name="user_id" attrs="{'readonly':True}" widget="selection" options="{'create':False, 'create_edit':False, 'limit':15}"/>
-                                <field name="source_file" class="oe_inline oe_left" />
+                                <field name="file_name" class="oe_inline oe_left" />
                                 <field name="entire_folder" class="oe_inline oe_left"/>
                                 <field name="shared_as" class="oe_inline oe_left" />
                                 <field name="folder_id" widget="selection"/>
+                                <field name="full_name" readonly="True"/>
                             </group>
                         </group>
                     <notebook colspan="4">
@@ -91,13 +92,7 @@
                             </group>
                         </page>
                         <page string="Debugging (other fields)">
-                            <field name="edit_url" widget="url"/>
-                            <field name="share_url" widget="url"/>
                             <field name="ip_addr"/>
-                            <field name="file_path"/>
-                            <field name="file_name"/>
-                            <field name="source_file"/>
-                            <field name="shared_as"/>
                             <field name="indexed_text"/>
                         </page>
                     </notebook>

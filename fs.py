@@ -1,59 +1,34 @@
-import logging
-import os
-import re
-from fnx import check_company_settings
+from fnx import check_company_settings, get_user_login, DateTime
 from fnx.path import Path
 from openerp import SUPERUSER_ID as SUPERUSER
 from osv import osv, fields
 from pwd import getpwuid
+from subprocess import check_output, CalledProcessError
 from tempfile import NamedTemporaryFile
+import logging
+import os
+import re
+import shutil
 import threading
 
 _logger = logging.getLogger(__name__)
 
 CONFIG_ERROR = "Configuration not set; check Settings --> Configuration --> FnxFS --> %s."
 
-#PERMISSIONS = (
-#    ('read_only', 'Read Only'),
-#    ('read_write', 'Read/Write'),
-#    )
-#
-#class fnx_fs_permissions(osv.Model):
-#    '''
-#    permissions for shared files (currently RO or RW)
-#    '''
-#
-#    _name = 'fnx.fs.permissions'
-#    _description = 'file sharing permissions'
-#    _columns = {
-#        'user_id': fields.many2many(
-#            'res.users',
-#            'fnx_fs_perm_users_rel',
-#            'pid',
-#            'uid',
-#            'User',
-#            ),
-#        'fnx_fs_file_permission': fields.selection(PERMISSIONS, 'File Permission'),
-#        }
-#    _defaults = {
-#        'fnx_fs_file_permission': lambda *a: 'read_only',
-#        }
-#fnx_fs_permissions()
+fs_root = Path('/var/openerp/fnx_fs/')
+permissions_file = Path('/var/openerp/fnx_fs.permissions')
+
+execfile('/etc/openerp/fnx_fs')
 
 READONLY_TYPE = (
     ('all', 'All FnxFS Users'),
-    ('selected', 'Seleceted FnxFS Users'),
+    ('selected', 'Selected FnxFS Users'),
     )
 
 class fnx_fs_folders(osv.Model):
     '''
     virtual folders for shared files to appear in
     '''
-
-    def _pdb(self, cr, uid, ids, field_name, arg, context=None):
-        import pdb
-        pdb.set_trace()
-        xyz = 'bubba'
 
     _name = 'fnx.fs.folders'
     _description = 'where shared files show up'
@@ -66,6 +41,15 @@ class fnx_fs_folders(osv.Model):
             'Files shared via this folder',
             ),
         }
+    _sql_constraints = [
+            ('folder_uniq', 'unique(name)', 'Folder already exists in system.'),
+            ]
+
+    def create(self, cr, uid, values, context=None):
+        folder = fs_root / values['name']
+        if not folder.exists():
+            folder.mkdir()
+        return super(fnx_fs_folders, self).create(cr, uid, values, context=context)
 fnx_fs_folders()
 
 
@@ -73,6 +57,11 @@ class fnx_fs_files(osv.Model):
     '''
     Tracks files and restricts access.
     '''
+
+    # TODO: when a file is created or updated to have 'entire_folder' as True, scan all files
+    #       and set any others in the same source folder to have 'entire_folder' as True
+
+    permissions_lock = threading.Lock()
 
     def _scan_fs(self, cr, uid, *args):
         '''
@@ -124,108 +113,107 @@ class fnx_fs_files(osv.Model):
             self.create(cr, SUPERUSER, values)
         return
 
-    def _split_file(self, cr, uid, ids, field_names, arg, context=None):
-        '''
-        192.168.11.31/home/<user>/path/to/file.odt
-
-        ip_address: 192.168.11.31
-        file_path:  /home/<user>/path/to/
-        file_name:  file.odt
-        '''
-        if context is None:
-            context = {}
-        if len(ids) > 1:
-            raise ValueError('can only process one file at a time')
-        client_address = getattr(threading.current_thread(), 'clientip', None)
-        if client_address is None:
-            client_address = context.get('__client_address__')
-        if client_address is None:
-            raise ValueError('unable to retrieve __client_address__ from thread nor context')
-        values = {}
-        records = self.browse(cr, SUPERUSER, ids)
-        for rec in records:
-            values[rec.id] = {}
-            values[rec.id]['ip_addr'] = client_address
-            #import pdb; pdb.set_trace()
-            src_file = Path(rec.source_file)
-            filename = src_file.filename
-            if filename.startswith("\\x"):
-                filename = filename[2:].decode('hex')
-            virtual_folder = rec.folder_id.name
-            values[rec.id]['file_path'] = src_file.path
-            values[rec.id]['file_name'] = filename
-            values[rec.id]['edit_url'] = 'file:///~/Public/%s/%s' % (virtual_folder, filename)
-            values[rec.id]['share_url'] = 'file:///home/oeshare/%s/%s' % (virtual_folder, filename)
-        #print "in _split_file -- values = ",repr(values)
-        return values
+    def _get_remote_file(self, cr, uid, values, context):
+        fnx_fs_folders = self.pool.get('fnx.fs.folders')
+        folder = fnx_fs_folders.browse(cr, uid, values['folder_id'], context=context).name
+        ip_addr = values['ip_addr'] = context['__client_address__']
+        file_name = values['file_name']
+        shared_as = values['shared_as']
+        login = get_user_login(self, cr, uid, context['uid'])
+        os.environ['SSHPASS'] = client_pass
+        remote_cmd = [
+                '/usr/bin/sshpass', '-e',
+                '/usr/bin/ssh', 'root@%s' % ip_addr, '/bin/grep',
+                '%s' % file_name, '/home/%s/.local/share/recently-used.xbel' % login,
+                #'/home/%s/.recently-used.xbel' % login,
+                ]
+        # <bookmark href="file:///home/ethan/plain.txt" added="2014-04-09T22:11:34Z" modified="2014-04-11T19:37:48Z" visited="2014-04-09T22:11:35Z">
+        try:
+            output = check_output(remote_cmd)
+        except CalledProcessError:
+            del os.environ['SSHPASS']
+            raise osv.except_osv('Error','Unable to locate file.')
+        matches = []
+        for line in output.split('\n'):
+            if not line:
+                continue
+            _, href, added, modied, visited = line.split()
+            file_path = href.partition('://')[2].strip('"')
+            added = DateTime(added.split('"')[1])
+            modied = DateTime(modied.split('"')[1])
+            matches.append((modied, file_path))
+        matches.sort(reverse=True)
+        file_path = values['full_name'] = matches[0][1]
+        copy_cmd = [
+                '/usr/bin/sshpass', '-e',
+                '/usr/bin/scp', 'root@%s:%s' % (ip_addr, file_path),
+                fs_root/folder/shared_as,
+                ]
+        print
+        print copy_cmd
+        print
+        try:
+            output = check_output(copy_cmd)
+        except CalledProcessError:
+            del os.environ['SSHPASS']
+            raise osv.except_osv('Error','Unable to copy file.')
+        del os.environ['SSHPASS']
 
     def create(self, cr, uid, values, context=None):
+        print '\ncreate\n', values
         if not values.get('shared_as'):
-            values['shared_as'] = Path(values['source_file']).filename
+            values['shared_as'] = values['file_name']
+        self._get_remote_file(cr, uid, values, context)
+        print '\n',values,'\n'
         new_id = super(fnx_fs_files, self).create(cr, uid, values, context=context)
-        self._write_fnx_fs_request(cr, uid, [new_id], context=context)
+        self._write_permissions(cr, uid, context=context)
+        current = self.browse(cr, uid, new_id)
+        print '\n', current.shared_as, '\n'
         return new_id
 
     def unlink(self, cr, uid, ids, context=None):
         if context is None:
             context = {}
-        success = super(fnx_fs_files, self).unlink(cr, uid, ids, context=context)
-        if success:
-            context['remove_file'] = True
-            self._write_fnx_fs_request(cr, uid, ids, context=None)
-        return success
+        res = super(fnx_fs_files, self).unlink(cr, uid, ids, context=context)
+        self._write_permissions(cr, uid, context=context)
+        return res
 
     def write(self, cr, uid, ids, values, context=None):
-        for id in ids:
-            if not values.get('shared_as'):
-                if values.get('source_file'):
-                    source_file = Path(values['source_file'])
-                else:
-                    record = self.browse(cr, uid, id)
-                    source_file = Path(record.source_file)
-                values['shared_as'] = source_file.filename
         success = super(fnx_fs_files, self).write(cr, uid, ids, values, context=context)
-        if success:
-            self._write_fnx_fs_request(cr, uid, ids, context=context)
+        self._write_permissions(cr, uid, context=context)
+        #if success:
+        #    self._write_fnx_fs_request(cr, uid, ids, context=context)
         return True
 
-    def _write_fnx_fs_request(self, cr, uid, ids, context=None):
-        if context is None:
-            context = {}
-        deleted = context.get('remove_file', False)
-        fnx_fs_folders = self.pool.get('fnx.fs.folders')
-        for id in ids:
+    def _write_permissions(self, cr, uid, context=None):
+        # write a file in the form of:
+        #
+        # ethan:read:/Q&A/cashews.ods
+        # emile:write:/Q&A/cashews.ods
+        # ethan:write:/Q&A/almonds.ods
+        # emile:write:/IT/ip_address.txt
+        # tony:read:/IT/ip_address.txt
+        # all:read:/IT/uh-oh.txt
+        # 
+        with self.permissions_lock:
+            files = self.browse(cr, uid, self.search(cr, uid, [],))
             lines = []
-            record = self.browse(cr, uid, [id], context=context)[0]
-            ip_addr = record.ip_addr
-            user = record.user_id.alias_name
-            shared_as = record.shared_as
-            entire_folder = record.entire_folder
-            file_path = Path(record.file_path)
-            file_name = Path(record.file_name)
-            source = file_path / file_name
-            target = Path('/') / record.folder_id.name / ''
-            lines.append( 'ipaddr=%s'    % ip_addr)
-            lines.append( 'source=%s'    % source)
-            lines.append( 'target=%s'    % target)
-            lines.append( 'user=%s'      % user)
-            lines.append( 'all_files=%s' % entire_folder)
-            lines.append( 'shared_as=%s' % shared_as)
-            if not deleted:
-                if record.readonly_type == 'all':
-                    lines.append( 'shareto=all,permission=r')
-                else:
-                    for ro_user in record.readonly_ids:
-                        lines.append( 'shareto=%s,permission=r' % ro_user.login)
-                for rw_user in record.readwrite_ids:
-                    lines.append( 'shareto=%s,permission=w' % rw_user.login)
-            with NamedTemporaryFile(dir='/var/oeshare/requests', prefix='shr', delete=False) as file:
-                file.write('\n'.join(lines))
-
+            for file in files:
+                folder = file.folder_id.name
+                path = Path('/')/folder/file.shared_as
+                read_write = set()
+                for user in file.readwrite_ids:
+                    read_write.add(user.id)
+                    lines.append('%s:write:%s' % (user.login, path))
+                for user in file.readonly_ids:
+                    if user.id not in read_write:
+                        lines.append('%s:read:%s' % (user.login, path))
+            print '\n'.join(lines)
+            with open(permissions_file, 'w') as data:
+                data.write('\n'.join(lines) + '\n')
 
     _name = 'fnx.fs.files'
     _description = 'tracked files'
-    #_inherits = {'fnx.fs.permissions':'perm_id'}
     _columns = {
         'user_id': fields.many2one(
             'res.users',
@@ -252,16 +240,6 @@ class fnx_fs_files(osv.Model):
             'Read/Write Access',
             domain="[('groups_id.category_id.name','=','FnxFS')]",
             ),
-        #'perm_id': fields.many2many(
-            #'fnx.fs.permissions',
-            #'fnx_file_perm_rel',
-            #'fid',
-            #'pid',
-            #'Permissions',
-            #required=True,
-            #ondelete='cascade',
-            #select=True,
-            #),
         'folder_id': fields.many2one(
             'fnx.fs.folders',
             'Folder',
@@ -270,53 +248,10 @@ class fnx_fs_files(osv.Model):
             ondelete='restrict',
             ),
         # simple path/file.ext of file (no IP address)
-        # I'm creating a binaryname field type to allow client file selection but transferring only the file name
-        'source_file': fields.binaryname('Source File', type='char', size=256, required=True),
-        # next four specify where the source file lives
-        'edit_url': fields.function(
-            _split_file,
-            type='char',
-            string='URL of editable source file',
-            multi='file',
-            store=True,
-            ),
-        'share_url': fields.function(
-            _split_file,
-            type='char',
-            string='URL of read-only file',
-            multi='file',
-            store=True,
-            ),
-        'ip_addr': fields.function(
-            _split_file,
-            type='char',
-            string='IP Address of source machine',
-            multi='file',
-            store=True,
-            #store={
-            #    'fnx_fs_files': (lambda s, c, u, ids, ctx={}: ids, ['src_file'], 10)
-            #    },
-            ),
-        'file_path': fields.function(
-            _split_file,
-            type='char',
-            string='File Path',
-            multi='file',
-            store=True,
-            #store={
-            #    'fnx_fs_files': (lambda s, c, u, ids, ctx={}: ids, ['src_file'], 10)
-            #    },
-            ),
-        'file_name': fields.function(
-            _split_file,
-            type='char',
-            string='File Name',
-            multi='file',
-            store=True,
-            #store={
-            #    'fnx_fs_files': (lambda s, c, u, ids, ctx={}: ids, ['src_file'], 10)
-            #    },
-            ),
+        # Emile has created a binaryname field type to allow client file selection but transferring only the file name
+        'file_name': fields.binaryname('Source File', type='char', size=256, required=True),
+        'full_name': fields.char('Full path and file name', size=512),
+        'ip_addr': fields.char('IP Address of source machine', size=15),
         'shared_as': fields.char(
             string='Shared As',
             size=64,

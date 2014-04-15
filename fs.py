@@ -63,7 +63,7 @@ class fnx_fs_folders(osv.Model):
         if res:
             for fp in to_be_deleted:
                 if fp.exists():
-                    fp.unlink()
+                    fp.rmtree()
         return res
 
 fnx_fs_folders()

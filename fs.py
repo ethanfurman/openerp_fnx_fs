@@ -174,8 +174,18 @@ class fnx_fs_files(osv.Model):
     def unlink(self, cr, uid, ids, context=None):
         if context is None:
             context = {}
+        if isinstance(ids, (int, long)):
+            ids = [ids]
+        to_be_deleted = []
+        records = self.browse(cr, uid, ids, context=context)
+        for rec in records:
+            full_name = fs_root / rec.folder_id.name / rec.shared_as
+            to_be_deleted.append(full_name)
         res = super(fnx_fs_files, self).unlink(cr, uid, ids, context=context)
         self._write_permissions(cr, uid, context=context)
+        for fn in to_be_deleted:
+            if fn.exists():
+                fn.unlink()
         return res
 
     def write(self, cr, uid, ids, values, context=None):

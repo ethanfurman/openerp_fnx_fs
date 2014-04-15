@@ -45,6 +45,7 @@
                 <tree string="Files" version="7.0">
                     <field name="folder_id"/>
                     <field name="file_name"/>
+                    <field name="shared_as"/>
                     <field name="user_id"/>
                 </tree>
             </field>

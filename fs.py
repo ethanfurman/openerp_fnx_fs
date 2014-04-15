@@ -236,9 +236,12 @@ class fnx_fs_files(osv.Model):
                 for user in file.readwrite_ids:
                     read_write.add(user.id)
                     lines.append('%s:write:%s' % (user.login, path))
-                for user in file.readonly_ids:
-                    if user.id not in read_write:
-                        lines.append('%s:read:%s' % (user.login, path))
+                if file.readonly_type == 'all':
+                    lines.append('all:read:%s' % path)
+                else:
+                    for user in file.readonly_ids:
+                        if user.id not in read_write:
+                            lines.append('%s:read:%s' % (user.login, path))
             with open(permissions_file, 'w') as data:
                 data.write('\n'.join(lines) + '\n')
 

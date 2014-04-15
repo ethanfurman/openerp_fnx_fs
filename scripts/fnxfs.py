@@ -31,7 +31,8 @@ def fnxfs(
         foreground=True,
         threads=False,
         ):
-    global logging = foreground
+    global logging
+    logging = foreground
 
     execfile(config, globals())
 

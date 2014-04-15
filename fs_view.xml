@@ -66,7 +66,7 @@
                                 <field name="file_type"/>
                                 <field name="file_name" class="oe_inline oe_left" attrs="{'invisible':[('file_type','=','normal')]}"/>
                                 <field name="entire_folder" class="oe_inline oe_left" attrs="{'invisible':[('file_type','=','normal')]}"/>
-                                <field name="shared_as" class="oe_inline oe_left" />
+                                <field name="shared_as" class="oe_inline oe_left" attrs="{'required':[('file_type','=','normal')]}"/>
                                 <field name="folder_id" widget="selection"/>
                                 <field name="full_name" readonly="True"/>
                             </group>

@@ -50,6 +50,22 @@ class fnx_fs_folders(osv.Model):
         if not folder.exists():
             folder.mkdir()
         return super(fnx_fs_folders, self).create(cr, uid, values, context=context)
+
+    def unlink(self, cr, uid, ids, context=None):
+        if isinstance(ids, (int, long)):
+            ids = [ids]
+        to_be_deleted = []
+        records = self.browse(cr, uid, ids, context=context)
+        for rec in records:
+            fp = fs_root / rec.name
+            to_be_deleted.append(fp)
+        res = super(fnx_fs_folders, self).unlink(cr, uid, ids, context=context)
+        if res:
+            for fp in to_be_deleted:
+                if fp.exists():
+                    fp.unlink()
+        return res
+
 fnx_fs_folders()
 
 
@@ -183,9 +199,10 @@ class fnx_fs_files(osv.Model):
             to_be_deleted.append(full_name)
         res = super(fnx_fs_files, self).unlink(cr, uid, ids, context=context)
         self._write_permissions(cr, uid, context=context)
-        for fn in to_be_deleted:
-            if fn.exists():
-                fn.unlink()
+        if res:
+            for fn in to_be_deleted:
+                if fn.exists():
+                    fn.unlink()
         return res
 
     def write(self, cr, uid, ids, values, context=None):

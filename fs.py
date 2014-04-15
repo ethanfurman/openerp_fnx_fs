@@ -86,6 +86,7 @@ class fnx_fs_files(osv.Model):
     permissions_lock = threading.Lock()
 
     def _scan_fs(self, cr, uid, *args):
+        return 1
         '''
         scans the file system for new documents
         '''
@@ -171,9 +172,6 @@ class fnx_fs_files(osv.Model):
                 '/usr/bin/scp', 'root@%s:%s' % (ip_addr, file_path),
                 fs_root/folder/shared_as,
                 ]
-        print
-        print copy_cmd
-        print
         try:
             output = check_output(copy_cmd)
         except CalledProcessError:
@@ -182,15 +180,15 @@ class fnx_fs_files(osv.Model):
         del os.environ['SSHPASS']
 
     def create(self, cr, uid, values, context=None):
-        print '\ncreate\n', values
         if not values.get('shared_as'):
             values['shared_as'] = values['file_name']
-        self._get_remote_file(cr, uid, values, context)
-        print '\n',values,'\n'
+        if values['file_type'] != 'normal':
+            self._get_remote_file(cr, uid, values, context)
         new_id = super(fnx_fs_files, self).create(cr, uid, values, context=context)
         self._write_permissions(cr, uid, context=context)
         current = self.browse(cr, uid, new_id)
-        print '\n', current.shared_as, '\n'
+        if current.file_type == 'normal':
+            open(fs_root/current.folder_id.name/current.shared_as, 'w').close()
         return new_id
 
     def unlink(self, cr, uid, ids, context=None):
@@ -241,7 +239,6 @@ class fnx_fs_files(osv.Model):
                 for user in file.readonly_ids:
                     if user.id not in read_write:
                         lines.append('%s:read:%s' % (user.login, path))
-            print '\n'.join(lines)
             with open(permissions_file, 'w') as data:
                 data.write('\n'.join(lines) + '\n')
 
@@ -307,5 +304,6 @@ class fnx_fs_files(osv.Model):
         'user_id': lambda s, c, u, ctx={}: u,
         'readwrite_ids': lambda s, c, u, ctx={}: [u],
         'readonly_type': lambda s, c, u, ctx={}: 'all',
+        'file_type': lambda s, c, u, ctx={}: 'normal',
         }
 fnx_fs_files()

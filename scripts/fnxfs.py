@@ -14,6 +14,7 @@ from VSS.paramiko.ssh_exception import SSHException
 from VSS.path import Path
 from VSS.xfuse import FUSE, Operations, FuseOSError, LoggingMixIn
 
+logging = False
 permission_file = Path('/var/openerp/fnx_fs.permissions')
 client_root = Path('/home/')
 user = get_login()
@@ -30,13 +31,9 @@ def fnxfs(
         foreground=True,
         threads=False,
         ):
+    global logging = foreground
 
-    client_pass = None
-    server_user = None
-    server_pass = None
-    openerp = None
-
-    execfile(config)
+    execfile(config, globals())
 
     class FnxFS(Operations):
         """
@@ -52,6 +49,8 @@ def fnxfs(
             self._client = SSHClient()
             self._client.load_system_host_keys()
             self._client.set_missing_host_key_policy(AutoAddPolicy())
+            if logging:
+                print 'connecting as', server_user, 'to', host
             self._client.connect(host, username=server_user, password=server_pass)
             self._sftp = self._client.open_sftp()
             self._root = Path('/var/openerp/fnx_fs/')
@@ -76,7 +75,8 @@ def fnxfs(
                 current_state = self._sftp.stat(permission_file)
             except SSHException:
                 try:
-                    print 'connection dropped, attempting to reestablish'
+                    if logging:
+                        print 'connection dropped, attempting to reestablish'
                     self._client.connect(self._host)
                     self._sftp = self._client.open_sftp()
                     current_state = self._sftp.stat(permission_file)
@@ -114,9 +114,7 @@ def fnxfs(
             try:
                 mask = self._file_permissions[path-self._root]
                 mode = remote_st.st_mode
-                print 'st_mode: %o' % mode
                 mode = mode & 0o777000 | mask
-                print 'st_mode: %o' % mode
             except KeyError:
                 if is_dir(remote_st.st_mode):
                     mode = remote_st.st_mode & 0o777000 | 0o500

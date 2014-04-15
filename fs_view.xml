@@ -62,9 +62,10 @@
                     <sheet string="Files">
                         <group>
                             <group>
-                                <field name="user_id" attrs="{'readonly':True}" widget="selection" options="{'create':False, 'create_edit':False, 'limit':15}"/>
-                                <field name="file_name" class="oe_inline oe_left" />
-                                <field name="entire_folder" class="oe_inline oe_left"/>
+                                <field name="user_id" readwrite="groups('fnx_fs.group_fnx_fs_manager')" widget="selection" options="{'create':False, 'create_edit':False, 'limit':15}"/>
+                                <field name="file_type"/>
+                                <field name="file_name" class="oe_inline oe_left" attrs="{'invisible':[('file_type','=','normal')]}"/>
+                                <field name="entire_folder" class="oe_inline oe_left" attrs="{'invisible':[('file_type','=','normal')]}"/>
                                 <field name="shared_as" class="oe_inline oe_left" />
                                 <field name="folder_id" widget="selection"/>
                                 <field name="full_name" readonly="True"/>

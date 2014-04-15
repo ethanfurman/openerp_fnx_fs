@@ -25,6 +25,12 @@ READONLY_TYPE = (
     ('selected', 'Selected FnxFS Users'),
     )
 
+FILE_TYPE = (
+    ('auto', 'Auto-Publish'),   # OpenERP cron job updates the file
+    ('manual', 'Publish'),      # user manually updates the file
+    ('normal', 'Read/Write'),   # normal FS usage
+    )
+
 class fnx_fs_folders(osv.Model):
     '''
     virtual folders for shared files to appear in
@@ -276,7 +282,12 @@ class fnx_fs_files(osv.Model):
             ),
         # simple path/file.ext of file (no IP address)
         # Emile has created a binaryname field type to allow client file selection but transferring only the file name
-        'file_name': fields.binaryname('Source File', type='char', size=256, required=True),
+        'file_type': fields.selection(FILE_TYPE, 'Share Type', help=
+            "Auto Publish --> OpenERP will update the file.\n"
+            "Publish --> User updates the file via OpenERP.\n"
+            "Read/Write --> Normal write access via the FnxFS file system."
+            ),
+        'file_name': fields.binaryname('Source File', type='char', size=256),
         'full_name': fields.char('Full path and file name', size=512),
         'ip_addr': fields.char('IP Address of source machine', size=15),
         'shared_as': fields.char(

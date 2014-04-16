@@ -28,7 +28,7 @@ user = get_login()
 def fnxfs(
         config=Path('/etc/openerp/fnx_fs'),
         mount_point=client_root/user/'fnx_fs',
-        foreground=True,
+        foreground=False,
         threads=False,
         ):
     global logging
@@ -167,11 +167,20 @@ def fnxfs(
     if foreground:
         FnxFS.__bases__ = LoggingMixIn, Operations
 
-    fuse = FUSE(
-                FnxFS(host=openerp, server_user=server_user, server_pass=server_pass, user=user),
-                mount_point,
-                foreground=foreground,
-                nothreads=not threads)
+    try:
+        mount_point_already_exists = True
+        if not mount_point.exists():
+            mount_point_already_exists = False
+            mount_point.mkdir()
+
+        fuse = FUSE(
+                    FnxFS(host=openerp, server_user=server_user, server_pass=server_pass, user=user),
+                    mount_point,
+                    foreground=foreground,
+                    nothreads=not threads)
+    finally:
+        if not mount_point_already_exists:
+            mount_point.rmtree()
 
 if __name__ == "__main__":
     Run()

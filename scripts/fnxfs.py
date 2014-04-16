@@ -1,8 +1,17 @@
 #!/usr/local/bin/suid-python
 
+# this must happen first!
+import __builtin__
+from VSS.utils import Open
+__builtin__.open = Open()
+# okay
+
+
 from collections import defaultdict
+from daemon import DaemonContext
+from daemon.pidfile import PIDLockFile
 from errno import *
-from os import getlogin as get_login
+from os import getlogin as get_login, dup
 from pwd import getpwnam as get_pw_entry
 from scription import Command, FLAG, OPTION, Run
 from stat import S_ISDIR as is_dir
@@ -16,8 +25,10 @@ from VSS.xfuse import FUSE, Operations, FuseOSError, LoggingMixIn
 
 logging = False
 permission_file = Path('/var/openerp/fnx_fs.permissions')
-client_root = Path('/home/')
 user = get_login()
+user_home = Path('/home/%s' % user)
+client_root = user_home/'fnx_fs'
+user_pid_file = Path('/var/tmp/fnxfs-%s.pid' %user)
 
 @Command(
         config=('location of configuration file', OPTION, 'c', Path),
@@ -27,7 +38,7 @@ user = get_login()
         )
 def fnxfs(
         config=Path('/etc/openerp/fnx_fs'),
-        mount_point=client_root/user/'fnx_fs',
+        mount_point=client_root,
         foreground=False,
         threads=False,
         ):
@@ -166,21 +177,26 @@ def fnxfs(
 
     if foreground:
         FnxFS.__bases__ = LoggingMixIn, Operations
-
-    try:
-        mount_point_already_exists = True
-        if not mount_point.exists():
-            mount_point_already_exists = False
-            mount_point.mkdir()
-
         fuse = FUSE(
                     FnxFS(host=openerp, server_user=server_user, server_pass=server_pass, user=user),
                     mount_point,
-                    foreground=foreground,
+                    foreground=True,
                     nothreads=not threads)
-    finally:
-        if not mount_point_already_exists:
-            mount_point.rmtree()
+    else:
+        daemon = DaemonContext()
+        mpt = str(mount_point).replace('/','_').strip('_')
+        log = open('/var/log/fnxfs.%s.log' % mpt, 'w')
+        daemon.stdout = log
+        daemon.stderr = dup(log.fileno())
+        daemon.files_preserve = [open.active('/dev/urandom')]
+        daemon.pidfile = PIDLockFile(user_pid_file)
+        with daemon:
+            fuse = FUSE(
+                        FnxFS(host=openerp, server_user=server_user, server_pass=server_pass, user=user),
+                        mount_point,
+                        foreground=True,
+                        nothreads=not threads)
+
 
 if __name__ == "__main__":
     Run()

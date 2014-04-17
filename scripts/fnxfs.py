@@ -186,8 +186,7 @@ def fnxfs(
         daemon = DaemonContext()
         mpt = str(mount_point).replace('/','_').strip('_')
         log = open('/var/log/fnxfs.%s.log' % mpt, 'w')
-        daemon.stdout = log
-        daemon.stderr = dup(log.fileno())
+        daemon.stderr = log
         daemon.files_preserve = [open.active('/dev/urandom')]
         daemon.pidfile = PIDLockFile(user_pid_file)
         with daemon:

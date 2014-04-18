@@ -5,6 +5,7 @@ from osv import osv, fields
 from pwd import getpwuid
 from subprocess import check_output, CalledProcessError
 from tempfile import NamedTemporaryFile
+from urllib import quote
 import logging
 import os
 import re
@@ -220,14 +221,14 @@ class fnx_fs_files(osv.Model):
         remote_cmd = [
                 '/usr/bin/sshpass', '-e',
                 '/usr/bin/ssh', 'root@%s' % ip_addr, '/bin/grep',
-                '%s' % file_name, '/home/%s/.local/share/recently-used.xbel' % login,
+                '%s' % quote(file_name), '/home/%s/.local/share/recently-used.xbel' % login,
                 #'/home/%s/.recently-used.xbel' % login,
                 ]
         # <bookmark href="file:///home/ethan/plain.txt" added="2014-04-09T22:11:34Z" modified="2014-04-11T19:37:48Z" visited="2014-04-09T22:11:35Z">
         try:
             output = check_output(remote_cmd, env=new_env)
-        except CalledProcessError:
-            raise osv.except_osv('Error','Unable to locate file.')
+        except CalledProcessError, exc:
+            raise osv.except_osv('Error','Unable to locate file.\n\n%s\n\n%s' % (exc, exc.output))
         matches = []
         for line in output.split('\n'):
             if not line:

@@ -259,12 +259,13 @@ class fnx_fs_files(osv.Model):
         # emile:write:/IT/ip_address.txt
         # tony:read:/IT/ip_address.txt
         # all:read:/IT/uh-oh.txt
+        # all:read:/IT/Printers/FAQ.pdf
         # 
         with self.permissions_lock:
             files = self.browse(cr, uid, self.search(cr, uid, [],))
             lines = []
             for file in files:
-                folder = file.folder_id.name
+                folder = file.folder_id.path
                 path = Path('/')/folder/file.shared_as
                 read_write = set()
                 for user in file.readwrite_ids:

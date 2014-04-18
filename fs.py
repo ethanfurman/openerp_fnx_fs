@@ -340,7 +340,7 @@ class fnx_fs_files(osv.Model):
         'user_id': lambda s, c, u, ctx={}: u,
         'readwrite_ids': lambda s, c, u, ctx={}: [u],
         'readonly_type': lambda s, c, u, ctx={}: 'all',
-        'file_type': lambda s, c, u, ctx={}: 'normal',
+        'file_type': lambda s, c, u, ctx={}: 'manual',
         }
 
     def create(self, cr, uid, values, context=None):

@@ -72,7 +72,7 @@ def fnxfs(
             self._gid = pwd_entry.pw_gid
             self._permission_state = None
             self._file_permissions = {}
-            self._visible_files = defaultdict(set)
+            self._visible = defaultdict(set)
             self._check_permissions()
        
         def __call__(self, op, path, *args):
@@ -98,7 +98,7 @@ def fnxfs(
                 with self._sftp.open(permission_file) as data:
                     permissions = data.readlines()
                 self._file_permissions = {}
-                self._visible_files = defaultdict(set)
+                self._visible = defaultdict(set)
                 target = self._user + ':'
                 for line in permissions:
                     if not line.startswith((target, 'all:')):
@@ -113,7 +113,19 @@ def fnxfs(
                         self._file_permissions[file] = 0o400
                     else:
                         raise FuseOSError('Corrupted permissions file')
-                    self._visible_files[path].add(file.filename)
+                    self._visible[path].add(file.filename)
+                    dirs = path.dir_pieces
+                    if dirs:
+                        stem = dirs.pop(0)
+                        for dir in dirs:
+                            self._visible[stem].add(dir)
+                            stem /= dir
+                        self._visible[stem].add(path.filename)
+                if logging:
+                    print
+                    for key, paths in sorted(self._visible.items()):
+                        print key, '-->', paths
+                    print
                 self._permission_state = current_state
        
         def getattr(self, path, fh=None):
@@ -146,12 +158,12 @@ def fnxfs(
 
         def readdir(self, path, fh):
             files = self._sftp.listdir_attr(path)
-            allowed_dirs = self._visible_files.keys()
+            allowed_dirs = self._visible.keys()
             if path == self._root:
                 names = [f.filename for f in files if (not is_dir(f.st_mode) or f.filename in allowed_dirs)]
             else:
                 path -= self._root
-                allowed_files = self._visible_files[path]
+                allowed_files = self._visible[path]
                 names = [f.filename for f in files if (f.filename in allowed_files or f.filename in allowed_dirs)]
             return ['.', '..'] + names
 

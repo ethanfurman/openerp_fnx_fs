@@ -139,7 +139,6 @@
             <field name="view_type">form</field>
             <field name="view_id" ref="fnx_fs_folders_tree"/>
             <field name="view_mode">tree,form</field>
-            <field name="domain" eval="[('parent_id','=',False)]"/>
         </record>
 
         <record model="ir.actions.act_window" id="action_fnx_fs_files">

@@ -101,7 +101,7 @@ class fnx_fs_folders(osv.Model):
         folder = self._get_path(cr, uid, parent_id, values['name'], context=context)
         if not folder.exists():
             folder.mkdir()
-        if 'description' in values:
+        if 'description' in values and values['description']:
             with open(folder/'README', 'w') as readme:
                 readme.write(values['description'])
         return super(fnx_fs_folders, self).create(cr, uid, values, context=context)

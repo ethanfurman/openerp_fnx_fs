@@ -36,26 +36,99 @@ class fnx_fs_folders(osv.Model):
     virtual folders for shared files to appear in
     '''
 
+    def _construct_path(self, cr, uid, ids, field_name, arg, context=None):
+        if isinstance(ids, (int, long)):
+            ids = [ids]
+        records = self.browse(cr, uid, ids, context=context)
+        res = {}
+        for rec in records:
+            res[rec.id] = self._get_path(cr, uid, rec.parent_id.id, rec.name, context=context) - fs_root
+        return res
+
     _name = 'fnx.fs.folders'
     _description = 'where shared files show up'
+    _rec_name = 'path'
     _columns = {
         'name': fields.char('Folder Name', size=64, required=True),
+        'path': fields.function(
+            _construct_path,
+            type='char',
+            string='Full Path',
+            store=True,
+            method=True,
+            ),
         'description': fields.text('Description'),
         'file_ids': fields.one2many(
             'fnx.fs.files',
             'folder_id',
             'Files shared via this folder',
             ),
+        'parent_id': fields.many2one(
+            'fnx.fs.folders',
+            'Parent Folder',
+            ondelete='restrict',
+            ),
+        'child_ids': fields.one2many(
+            'fnx.fs.folders',
+            'parent_id',
+            'Sub-Folders',
+            ),
         }
     _sql_constraints = [
             ('folder_uniq', 'unique(name)', 'Folder already exists in system.'),
             ]
 
+    def _get_path(self, cr, uid, parent_id, name, id=None, context=None):
+        records = self.browse(cr, uid, self.search(cr, uid, [], context=context), context=context)
+        folders = {}
+        for rec in records:
+            folders[rec.id] = rec
+        path = [name]
+        while parent_id:
+            rec = folders[parent_id]
+            if id is not None and id == rec.id:
+                raise osv.osv_except('Error', 'Current parent assignment creates a loop!')
+            parent = folders[parent_id]
+            path.append(parent.name)
+            parent_id = parent.parent_id.id
+        folder = fs_root
+        while path:
+            folder /= path.pop()
+        return folder
+
     def create(self, cr, uid, values, context=None):
-        folder = fs_root / values['name']
+        parent_id = values.get('parent_id')
+        folder = self._get_path(cr, uid, parent_id, values['name'], context=context)
         if not folder.exists():
             folder.mkdir()
+        if 'description' in values:
+            with open(folder/'README', 'w') as readme:
+                readme.write(values['description'])
         return super(fnx_fs_folders, self).create(cr, uid, values, context=context)
+
+    def write(self, cr, uid, ids, values, context=None):
+        if ids:
+            if isinstance(ids, (int, long)):
+                ids = [ids]
+            records = self.browse(cr, uid, ids, context=context)
+            for rec in records:
+                parent_id = values.get('parent_id', rec.parent_id.id)
+                name = values.get('name', rec.name)
+                new_path = self._get_path(cr, uid, parent_id, name, id=rec.id, context=context)
+                if 'parent_id' in values or 'name' in values:
+                    old_path = self._get_path(cr, uid, rec.parent_id.id, rec.name, context=context)
+                    old = old_path.exists()
+                    new = new_path.exists()
+                    if old and new:
+                        raise osv.osv_except('Error', '%r already exists.' % new_path)
+                    elif old and not new:
+                        old_path.move(new_path)
+                    elif not new:
+                        new_path.mkdir()
+                if 'description' in values:
+                    with open(new_path/'README', 'w') as readme:
+                        readme.write(values['description'])
+        return super(fnx_fs_folders, self).write(cr, uid, ids, values, context=context)
 
     def unlink(self, cr, uid, ids, context=None):
         if isinstance(ids, (int, long)):
@@ -63,8 +136,7 @@ class fnx_fs_folders(osv.Model):
         to_be_deleted = []
         records = self.browse(cr, uid, ids, context=context)
         for rec in records:
-            fp = fs_root / rec.name
-            to_be_deleted.append(fp)
+            path = self._get_path(cr, uid, rec.parent_id.id, rec.name, context=context)
         res = super(fnx_fs_folders, self).unlink(cr, uid, ids, context=context)
         if res:
             for fp in to_be_deleted:
@@ -143,7 +215,8 @@ class fnx_fs_files(osv.Model):
         file_name = values['file_name']
         shared_as = values['shared_as']
         login = get_user_login(self, cr, uid, context['uid'])
-        os.environ['SSHPASS'] = client_pass
+        new_env = os.environ.copy()
+        new_env['SSHPASS'] = client_pass
         remote_cmd = [
                 '/usr/bin/sshpass', '-e',
                 '/usr/bin/ssh', 'root@%s' % ip_addr, '/bin/grep',
@@ -152,9 +225,8 @@ class fnx_fs_files(osv.Model):
                 ]
         # <bookmark href="file:///home/ethan/plain.txt" added="2014-04-09T22:11:34Z" modified="2014-04-11T19:37:48Z" visited="2014-04-09T22:11:35Z">
         try:
-            output = check_output(remote_cmd)
+            output = check_output(remote_cmd, env=new_env)
         except CalledProcessError:
-            del os.environ['SSHPASS']
             raise osv.except_osv('Error','Unable to locate file.')
         matches = []
         for line in output.split('\n'):
@@ -173,48 +245,9 @@ class fnx_fs_files(osv.Model):
                 fs_root/folder/shared_as,
                 ]
         try:
-            output = check_output(copy_cmd)
+            output = check_output(copy_cmd, env=new_env)
         except CalledProcessError:
-            del os.environ['SSHPASS']
             raise osv.except_osv('Error','Unable to copy file.')
-        del os.environ['SSHPASS']
-
-    def create(self, cr, uid, values, context=None):
-        if not values.get('shared_as'):
-            values['shared_as'] = values['file_name']
-        if values['file_type'] != 'normal':
-            self._get_remote_file(cr, uid, values, context)
-        new_id = super(fnx_fs_files, self).create(cr, uid, values, context=context)
-        self._write_permissions(cr, uid, context=context)
-        current = self.browse(cr, uid, new_id)
-        if current.file_type == 'normal':
-            open(fs_root/current.folder_id.name/current.shared_as, 'w').close()
-        return new_id
-
-    def unlink(self, cr, uid, ids, context=None):
-        if context is None:
-            context = {}
-        if isinstance(ids, (int, long)):
-            ids = [ids]
-        to_be_deleted = []
-        records = self.browse(cr, uid, ids, context=context)
-        for rec in records:
-            full_name = fs_root / rec.folder_id.name / rec.shared_as
-            to_be_deleted.append(full_name)
-        res = super(fnx_fs_files, self).unlink(cr, uid, ids, context=context)
-        self._write_permissions(cr, uid, context=context)
-        if res:
-            for fn in to_be_deleted:
-                if fn.exists():
-                    fn.unlink()
-        return res
-
-    def write(self, cr, uid, ids, values, context=None):
-        success = super(fnx_fs_files, self).write(cr, uid, ids, values, context=context)
-        self._write_permissions(cr, uid, context=context)
-        #if success:
-        #    self._write_fnx_fs_request(cr, uid, ids, context=context)
-        return True
 
     def _write_permissions(self, cr, uid, context=None):
         # write a file in the form of:
@@ -309,4 +342,62 @@ class fnx_fs_files(osv.Model):
         'readonly_type': lambda s, c, u, ctx={}: 'all',
         'file_type': lambda s, c, u, ctx={}: 'normal',
         }
+
+    def create(self, cr, uid, values, context=None):
+        if not values.get('shared_as'):
+            values['shared_as'] = values['file_name']
+        if values['file_type'] != 'normal':
+            self._get_remote_file(cr, uid, values, context)
+        new_id = super(fnx_fs_files, self).create(cr, uid, values, context=context)
+        self._write_permissions(cr, uid, context=context)
+        current = self.browse(cr, uid, new_id)
+        if current.file_type == 'normal':
+            open(fs_root/current.folder_id.path/current.shared_as, 'w').close()
+        return new_id
+
+    def unlink(self, cr, uid, ids, context=None):
+        if context is None:
+            context = {}
+        if isinstance(ids, (int, long)):
+            ids = [ids]
+        to_be_deleted = []
+        records = self.browse(cr, uid, ids, context=context)
+        for rec in records:
+            full_name = fs_root / rec.folder_id.name / rec.shared_as
+            to_be_deleted.append(full_name)
+        res = super(fnx_fs_files, self).unlink(cr, uid, ids, context=context)
+        self._write_permissions(cr, uid, context=context)
+        if res:
+            for fn in to_be_deleted:
+                if fn.exists():
+                    fn.unlink()
+        return res
+
+    def write(self, cr, uid, ids, values, context=None):
+        if isinstance(ids, (int, long)):
+            ids = [ids]
+        fnx_fs_folders = self.pool.get('fnx.fs.folders')
+        records = self.browse(cr, uid, ids, context=context)
+        for rec in records:
+            if 'shared_as' in values or 'folder_id' in values:
+                if 'folder_id' in values:
+                    folder_rec = fnx_fs_folders.browse(cr, uid, values['folder_id'], context=context)
+                    folder = folder_rec.path
+                else:
+                    folder = rec.folder_id.path
+                name = values.get('shared_as', rec.shared_as)
+                old_path = fs_root/rec.folder_id.path/rec.shared_as
+                new_path = fs_root/folder/name
+                old = old_path.exists()
+                new = new_path.exists()
+                if old and new:
+                    raise osv.osv_except('Error', '%r already exists.' % new_path)
+                elif old and not new:
+                    old_path.move(new_path)
+                else:
+                    raise osv.osv_except('Error', 'Neither %r nor %r exist!' % (old_path, new_path))
+        success = super(fnx_fs_files, self).write(cr, uid, ids, values, context=context)
+        self._write_permissions(cr, uid, context=context)
+        return True
+
 fnx_fs_files()

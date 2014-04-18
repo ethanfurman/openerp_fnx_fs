@@ -22,13 +22,18 @@
                 <form string="Folders" version="7.0">
                     <group>
                         <field name="name"/>
+                        <field name="path"/>
                         <field name="description"/>
+                        <field name="parent_id"/>
+                    </group>
+                    <group>
+                        <field name="child_ids"/>
                     </group>
                     <notebook colspan="4">
                         <page string="Files">
                             <field name="file_ids" nolabel="1" options="{'create':False, 'create_edit':False}">
                                 <tree version="7.0">
-                                    <field name="file_name"/>
+                                    <field name="shared_as" string="Share Name"/>
                                     <field name="user_id"/>
                                 </tree>
                             </field>
@@ -134,6 +139,7 @@
             <field name="view_type">form</field>
             <field name="view_id" ref="fnx_fs_folders_tree"/>
             <field name="view_mode">tree,form</field>
+            <field name="domain" eval="[('parent_id','=',False)]"/>
         </record>
 
         <record model="ir.actions.act_window" id="action_fnx_fs_files">

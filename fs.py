@@ -209,12 +209,15 @@ class fnx_fs_files(osv.Model):
             self.create(cr, SUPERUSER, values)
         return
 
-    def _get_remote_file(self, cr, uid, values, context):
+    def _get_remote_file(self, cr, uid, values, shared_as=None, folder_id=None, context=None):
         fnx_fs_folders = self.pool.get('fnx.fs.folders')
-        folder = fnx_fs_folders.browse(cr, uid, values['folder_id'], context=context).path
-        ip_addr = values['ip_addr'] = context['__client_address__']
+        if folder_id is None:
+            folder_id = values['folder_id']
+        if shared_as is None:
+            shared_as = values['shared_as']
+        folder = fnx_fs_folders.browse(cr, uid, folder_id, context=context).path
+        ip_addr = context['__client_address__']
         file_name = values['file_name']
-        shared_as = values['shared_as']
         login = get_user_login(self, cr, uid, context['uid'])
         new_env = os.environ.copy()
         new_env['SSHPASS'] = client_pass
@@ -351,6 +354,7 @@ class fnx_fs_files(osv.Model):
         if not values.get('shared_as'):
             values['shared_as'] = values['file_name']
         if values['file_type'] != 'normal':
+            values['ip_addr'] = context['__client_address__']
             self._get_remote_file(cr, uid, values, context)
         new_id = super(fnx_fs_files, self).create(cr, uid, values, context=context)
         self._write_permissions(cr, uid, context=context)
@@ -383,14 +387,16 @@ class fnx_fs_files(osv.Model):
         fnx_fs_folders = self.pool.get('fnx.fs.folders')
         records = self.browse(cr, uid, ids, context=context)
         for rec in records:
+            folder_id = values.get('folder_id', rec.folder_id.id)
+            shared_as = values.get('shared_as', rec.shared_as)
+            old_path = fs_root/rec.folder_id.path/rec.shared_as
             if 'shared_as' in values or 'folder_id' in values:
                 if 'folder_id' in values:
-                    folder_rec = fnx_fs_folders.browse(cr, uid, values['folder_id'], context=context)
+                    folder_rec = fnx_fs_folders.browse(cr, uid, folder_id, context=context)
                     folder = folder_rec.path
                 else:
                     folder = rec.folder_id.path
-                name = values.get('shared_as', rec.shared_as)
-                old_path = fs_root/rec.folder_id.path/rec.shared_as
+                name = shared_as
                 new_path = fs_root/folder/name
                 old = old_path.exists()
                 new = new_path.exists()
@@ -400,6 +406,8 @@ class fnx_fs_files(osv.Model):
                     old_path.move(new_path)
                 else:
                     raise osv.osv_except('Error', 'Neither %r nor %r exist!' % (old_path, new_path))
+            if 'file_name' in values:
+                self._get_remote_file(cr, uid, values, folder_id=folder_id, shared_as=shared_as, context=context)
         success = super(fnx_fs_files, self).write(cr, uid, ids, values, context=context)
         self._write_permissions(cr, uid, context=context)
         return True

@@ -88,7 +88,7 @@ class fnx_fs_folders(osv.Model):
         while parent_id:
             rec = folders[parent_id]
             if id is not None and id == rec.id:
-                raise osv.osv_except('Error', 'Current parent assignment creates a loop!')
+                raise osv.except_osv('Error', 'Current parent assignment creates a loop!')
             parent = folders[parent_id]
             path.append(parent.name)
             parent_id = parent.parent_id.id
@@ -121,7 +121,7 @@ class fnx_fs_folders(osv.Model):
                     old = old_path.exists()
                     new = new_path.exists()
                     if old and new:
-                        raise osv.osv_except('Error', '%r already exists.' % new_path)
+                        raise osv.except_osv('Error', '%r already exists.' % new_path)
                     elif old and not new:
                         old_path.move(new_path)
                     elif not new:
@@ -353,14 +353,20 @@ class fnx_fs_files(osv.Model):
     def create(self, cr, uid, values, context=None):
         if not values.get('shared_as'):
             values['shared_as'] = values['file_name']
-        if values['file_type'] != 'normal':
+        shared_as = Path(values['shared_as'])
+        if values['file_type'] == 'normal':
+            if not shared_as.ext:
+                osv.except_osv('Error', 'Shared name should have an extension indicating file type.')
+            open(fs_root/current.folder_id.path/current.shared_as, 'w').close()
+        else:
             values['ip_addr'] = context['__client_address__']
-            self._get_remote_file(cr, uid, values, context)
+            source_file = Path(values['file_name'])
+            if shared_as.ext != '.' and shared_as.ext != source_file.ext:
+                values['shared_as'] = shared_as + source_file.ext
+            self._get_remote_file(cr, uid, values, context=context)
         new_id = super(fnx_fs_files, self).create(cr, uid, values, context=context)
         self._write_permissions(cr, uid, context=context)
         current = self.browse(cr, uid, new_id)
-        if current.file_type == 'normal':
-            open(fs_root/current.folder_id.path/current.shared_as, 'w').close()
         return new_id
 
     def unlink(self, cr, uid, ids, context=None):
@@ -387,9 +393,14 @@ class fnx_fs_files(osv.Model):
         fnx_fs_folders = self.pool.get('fnx.fs.folders')
         records = self.browse(cr, uid, ids, context=context)
         for rec in records:
+            source_file = Path(values.get('file_name', rec.file_name or ''))
+            sfe = source_file and source_file.ext
+            shared_as = Path(values.get('shared_as', rec.shared_as))
             folder_id = values.get('folder_id', rec.folder_id.id)
-            shared_as = values.get('shared_as', rec.shared_as)
             old_path = fs_root/rec.folder_id.path/rec.shared_as
+            if shared_as.ext not in ('.', sfe):
+                shared_as += source_file.ext
+                values['shared_as'] = shared_as
             if 'shared_as' in values or 'folder_id' in values:
                 if 'folder_id' in values:
                     folder_rec = fnx_fs_folders.browse(cr, uid, folder_id, context=context)
@@ -401,11 +412,11 @@ class fnx_fs_files(osv.Model):
                 old = old_path.exists()
                 new = new_path.exists()
                 if old and new:
-                    raise osv.osv_except('Error', '%r already exists.' % new_path)
+                    raise osv.except_osv('Error', '%r already exists.' % new_path)
                 elif old and not new:
                     old_path.move(new_path)
                 else:
-                    raise osv.osv_except('Error', 'Neither %r nor %r exist!' % (old_path, new_path))
+                    raise osv.except_osv('Error', 'Neither %r nor %r exist!' % (old_path, new_path))
             if 'file_name' in values:
                 self._get_remote_file(cr, uid, values, folder_id=folder_id, shared_as=shared_as, context=context)
         success = super(fnx_fs_files, self).write(cr, uid, ids, values, context=context)

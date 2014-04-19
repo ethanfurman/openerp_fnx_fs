@@ -1,11 +1,11 @@
 from fnx import check_company_settings, get_user_login, DateTime
 from fnx.path import Path
+from fnx.utils import xml_quote, xml_unquote
 from openerp import SUPERUSER_ID as SUPERUSER
 from osv import osv, fields
 from pwd import getpwuid
 from subprocess import check_output, CalledProcessError
 from tempfile import NamedTemporaryFile
-from urllib import quote
 import logging
 import os
 import re
@@ -211,7 +211,7 @@ class fnx_fs_files(osv.Model):
 
     def _get_remote_file(self, cr, uid, values, context):
         fnx_fs_folders = self.pool.get('fnx.fs.folders')
-        folder = fnx_fs_folders.browse(cr, uid, values['folder_id'], context=context).name
+        folder = fnx_fs_folders.browse(cr, uid, values['folder_id'], context=context).path
         ip_addr = values['ip_addr'] = context['__client_address__']
         file_name = values['file_name']
         shared_as = values['shared_as']
@@ -221,7 +221,7 @@ class fnx_fs_files(osv.Model):
         remote_cmd = [
                 '/usr/bin/sshpass', '-e',
                 '/usr/bin/ssh', 'root@%s' % ip_addr, '/bin/grep',
-                '%s' % quote(file_name), '/home/%s/.local/share/recently-used.xbel' % login,
+                '%s' % xml_quote(file_name), '/home/%s/.local/share/recently-used.xbel' % login,
                 #'/home/%s/.recently-used.xbel' % login,
                 ]
         # <bookmark href="file:///home/ethan/plain.txt" added="2014-04-09T22:11:34Z" modified="2014-04-11T19:37:48Z" visited="2014-04-09T22:11:35Z">
@@ -239,16 +239,18 @@ class fnx_fs_files(osv.Model):
             modied = DateTime(modied.split('"')[1])
             matches.append((modied, file_path))
         matches.sort(reverse=True)
-        file_path = values['full_name'] = matches[0][1]
+        file_path = values['full_name'] = xml_unquote(matches[0][1])
         copy_cmd = [
                 '/usr/bin/sshpass', '-e',
-                '/usr/bin/scp', 'root@%s:%s' % (ip_addr, file_path),
+                '/usr/bin/scp', 'root@%s:"%s"' % (ip_addr, xml_unquote(file_path)),
                 fs_root/folder/shared_as,
                 ]
         try:
+            print copy_cmd
             output = check_output(copy_cmd, env=new_env)
-        except CalledProcessError:
-            raise osv.except_osv('Error','Unable to copy file.')
+        except CalledProcessError, exc:
+            print exc.output
+            raise osv.except_osv('Error','Unable to copy file.\n\n%s\n\n%s' % (exc, exc.output))
 
     def _write_permissions(self, cr, uid, context=None):
         # write a file in the form of:

@@ -37,7 +37,7 @@ user_pid_file = Path('/var/tmp/fnxfs-%s.pid' %user)
         threads=('use threads', FLAG, 't'),
         )
 def fnxfs(
-        config=Path('/etc/openerp/fnx_fs'),
+        config=Path('/usr/local/etc/fnx_fs'),
         mount_point=client_root,
         foreground=False,
         threads=False,

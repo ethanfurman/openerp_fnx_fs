@@ -187,6 +187,10 @@ def fnxfs(
             f.close()
             return len(data)
 
+    if mount_point == client_root and not mount_point.exists():
+        mount_point.mkdir()
+    elif not mount_point.exists():
+        raise OSError(ENOENT, 'directory does not exist', mount_point)
     if foreground:
         FnxFS.__bases__ = LoggingMixIn, Operations
         fuse = FUSE(
@@ -207,7 +211,6 @@ def fnxfs(
                         mount_point,
                         foreground=True,
                         nothreads=not threads)
-
 
 if __name__ == "__main__":
     Run()

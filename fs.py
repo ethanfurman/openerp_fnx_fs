@@ -1,9 +1,10 @@
-from fnx import check_company_settings, get_user_login, DateTime
+from fnx import check_company_settings, get_user_login, get_user_timezone, DateTime, Time, Date, float, Weekday
 from fnx.path import Path
 from fnx.utils import xml_quote, xml_unquote
 from openerp import SUPERUSER_ID as SUPERUSER
 from osv import osv, fields
 from pwd import getpwuid
+from pytz import timezone
 from subprocess import check_output, CalledProcessError
 from tempfile import NamedTemporaryFile
 import logging
@@ -31,6 +32,27 @@ FILE_TYPE = (
     ('manual', 'Publish'),      # user manually updates the file
     ('normal', 'Read/Write'),   # normal FS usage
     )
+
+PERIOD_TYPE = (
+    ('daily', 'Daily'),
+    ('weekly', 'Weekly'),
+    ('monthly', 'Monthly'),
+    )
+#
+#class fnx_fs_schedule(osv.Model):
+#    '''
+#    schedule of files to automatically publish
+#    '''
+#    _name = 'fnx.fs.schedule'
+#    _description = 'file update schedule'
+#
+#    _columns = {
+#        file_id = fields.one2many(
+#            'fnx.fs.files',
+#            'schedule_id',
+#            'File',
+#            ),
+
 
 class fnx_fs_folders(osv.Model):
     '''
@@ -158,101 +180,115 @@ class fnx_fs_files(osv.Model):
 
     permissions_lock = threading.Lock()
 
-    def _scan_fs(self, cr, uid, *args):
-        return 1
-        '''
-        scans the file system for new documents
-        '''
-        _logger.info('status._scan_fs starting...')
+    def fnx_fs_publish_file(self, cr, uid, ids, context):
+        if isinstance(ids, (int, long)):
+            ids = [ids]
         res_users = self.pool.get('res.users')
-        # get networks to scan
-        prefix = check_company_settings(self, cr, uid, ('prefix', 'File System', CONFIG_ERROR))['prefix']
-        regex = check_company_settings(self, cr, uid, ('pattern', 'File System', CONFIG_ERROR))['pattern']
-        # get known pcs
-        current_files = []
-        results = []
-        for rec in self.browse(cr, uid, self.search(cr, uid, [(1,'=',1)])):
-            filename = Path(rec.file_path) / rec.file_name
-            current_files.append(filename)
-        current_files = set(current_files)
-        print current_files
-        # generate list of files on disk
-        disk_files = []
-        good_dir = re.compile(regex)
-        prefix = Path(prefix)/''
-        for path, dirs, files in os.walk(prefix):
-            if path == prefix:
-                new_dirs = dirs[:]
-                for d in new_dirs:
-                    if not good_dir.search(d):
-                        dirs.remove(d)
-                continue
-            path/''     # make sure path ends with slash
-            for f in files:
-                branch = path/f-prefix
-                if branch not in current_files:
-                    disk_files.append(branch)
-                else:
-                    print 'skipping', branch
-        print disk_files
-        logins = {}
-        for branch in disk_files:
-            values = {}
-            login = getpwuid(os.stat(prefix/branch)[4]).pw_name
-            oe_login = logins.get(login)
-            if oe_login is None:
-                oe_login = res_users.browse(cr, SUPERUSER, res_users.search(cr, SUPERUSER, [('login','=',login)]))[0].id
-                logins[login] = oe_login
-            values['user_id'] = oe_login
-            values['file_path'] = branch.path
-            values['file_name'] = branch.filename
-            self.create(cr, SUPERUSER, values)
-        return
+        records = self.browse(cr, uid, ids, context=context)
+        if uid != SUPERUSER and not any(uid == rw.id for rw in rec.readwrite_ids for rec in records):
+            raise osv.except_osv('Error', 'You do not have write permission for this file.')
+        raise osv.except_osv('Not Implemented', 'This feature is not yet implemented.')
 
-    def _get_remote_file(self, cr, uid, values, shared_as=None, folder_id=None, context=None):
+    def fnx_fs_publish_times(self, cr, uid, ids=None, context=None):
+        if ids is None:
+            ids = self.search(cr, uid, [('file_type','=','auto')], context=context)
+        if isinstance(ids, (int, long)):
+            ids = [ids]
+        res = self.browse(cr, uid, ids, context=context)
+        res.sort(key=lambda rec: rec.scheduled_at)
+        return res
+
+    def fnx_fs_scheduled_publish(self, cr, uid, context=None):
+        publishable_files = self.fnx_fs_publish_times(cr, uid, context=context)
+        for rec in publishable_files:
+            if rec.scheduled_at < DateTime.now():
+                break
+            self._get_remote_file(cr, uid, {},
+                    owner_id=rec.user_id.id, file_path=rec.full_name, ip=rec.ip_addr,
+                    shared_as=rec.shared_as, folder_id=rec.folder_id.id,
+                    context=context)
+            if rec.schedule_period == 'daily':
+                next_date = Date.today().replace(delta_day=1).date()
+                self.write(cr, uid, [rec.id], {'schedule_date':next_date}, context=context)
+            elif rec.schedule_period == 'weekly':
+                scheduled_day = Weekday.from_date(rec.schedule_date)
+                today = Weekday.from_date(Date.today())
+                delta = today.next(scheduled_day)
+                next_date = Date.today().replace(delta_day=delta).date()
+                self.write(cr, uid, [rec.id], {'schedule_date':next_date}, context=context)
+            elif rec.schedule_period == 'monthly':
+                if rec.schedule_date.day >= 28:
+                    next_date = Date(rec.schedule_date).replace(delta_month=2, day=1).replace(delta_day=-1).date()
+                else:
+                    next_date = Date(rec.schedule_date).replace(delta_month=1).date()
+                self.write(cr, uid, [rec.id], {'schedule_date':next_date}, context=context)
+        return True        
+
+    def _calc_scheduled_at(self, cr, uid, ids, _field=None, _arg=None, context=None):
+        if isinstance(ids, (int, long)):
+            ids = [ids]
+        res = {}
+        user_tz = timezone(get_user_timezone(self, cr, uid)[uid])
+        records = self.browse(cr, uid, ids, context=context)
+        for rec in records:
+            res[rec.id] = False
+            date = rec.schedule_date
+            time = rec.schedule_time or 0.0
+            if date:
+                dt = DateTime.combine(Date(date), Time.fromfloat(time)).datetime()
+                dt = user_tz.localize(dt)
+                res[rec.id] = dt
+        return res
+
+    def _get_remote_file(self, cr, uid, values,
+            owner_id=None, file_path=None, ip=None, shared_as=None, folder_id=None,
+            context=None):
         fnx_fs_folders = self.pool.get('fnx.fs.folders')
         if folder_id is None:
             folder_id = values['folder_id']
         if shared_as is None:
             shared_as = values['shared_as']
+        if ip is None:
+            ip = context['__client_address__']
+        if owner_id is None:
+            owner_id = values['user_id']
+        if file_path is None:
+            file_name = values['file_name']
+        login = get_user_login(self, cr, uid, owner_id)
         folder = fnx_fs_folders.browse(cr, uid, folder_id, context=context).path
-        ip_addr = context['__client_address__']
-        file_name = values['file_name']
-        login = get_user_login(self, cr, uid, context['uid'])
         new_env = os.environ.copy()
         new_env['SSHPASS'] = client_pass
-        remote_cmd = [
-                '/usr/bin/sshpass', '-e',
-                '/usr/bin/ssh', 'root@%s' % ip_addr, '/bin/grep',
-                '%s' % xml_quote(file_name), '/home/%s/.local/share/recently-used.xbel' % login,
-                #'/home/%s/.recently-used.xbel' % login,
-                ]
-        # <bookmark href="file:///home/ethan/plain.txt" added="2014-04-09T22:11:34Z" modified="2014-04-11T19:37:48Z" visited="2014-04-09T22:11:35Z">
-        try:
-            output = check_output(remote_cmd, env=new_env)
-        except CalledProcessError, exc:
-            raise osv.except_osv('Error','Unable to locate file.\n\n%s\n\n%s' % (exc, exc.output))
-        matches = []
-        for line in output.split('\n'):
-            if not line:
-                continue
-            _, href, added, modied, visited = line.split()
-            file_path = href.partition('://')[2].strip('"')
-            added = DateTime(added.split('"')[1])
-            modied = DateTime(modied.split('"')[1])
-            matches.append((modied, file_path))
-        matches.sort(reverse=True)
-        file_path = values['full_name'] = xml_unquote(matches[0][1])
+        if file_path is None:
+            remote_cmd = [
+                    '/usr/bin/sshpass', '-e',
+                    '/usr/bin/ssh', 'root@%s' % ip, '/bin/grep',
+                    '%s' % xml_quote(file_name), '/home/%s/.local/share/recently-used.xbel' % login,
+                    #'/home/%s/.recently-used.xbel' % login,
+                    ]
+            # <bookmark href="file:///home/ethan/plain.txt" added="2014-04-09T22:11:34Z" modified="2014-04-11T19:37:48Z" visited="2014-04-09T22:11:35Z">
+            try:
+                output = check_output(remote_cmd, env=new_env)
+            except CalledProcessError, exc:
+                raise osv.except_osv('Error','Unable to locate file.\n\n%s\n\n%s' % (exc, exc.output))
+            matches = []
+            for line in output.split('\n'):
+                if not line:
+                    continue
+                _, href, added, modied, visited = line.split()
+                file_path = href.partition('://')[2].strip('"')
+                added = DateTime(added.split('"')[1])
+                modied = DateTime(modied.split('"')[1])
+                matches.append((modied, file_path))
+            matches.sort(reverse=True)
+            file_path = values['full_name'] = xml_unquote(matches[0][1])
         copy_cmd = [
                 '/usr/bin/sshpass', '-e',
-                '/usr/bin/scp', 'root@%s:"%s"' % (ip_addr, xml_unquote(file_path)),
+                '/usr/bin/scp', 'root@%s:"%s"' % (ip, file_path),
                 fs_root/folder/shared_as,
                 ]
         try:
-            print copy_cmd
             output = check_output(copy_cmd, env=new_env)
         except CalledProcessError, exc:
-            print exc.output
             raise osv.except_osv('Error','Unable to copy file.\n\n%s\n\n%s' % (exc, exc.output))
 
     def _write_permissions(self, cr, uid, context=None):
@@ -275,7 +311,10 @@ class fnx_fs_files(osv.Model):
                 read_write = set()
                 for user in file.readwrite_ids:
                     read_write.add(user.id)
-                    lines.append('%s:write:%s' % (user.login, path))
+                    if file.file_type == 'normal':
+                        lines.append('%s:write:%s' % (user.login, path))
+                    else:
+                        lines.append('%s:read:%s' % (user.login, path))
                 if file.readonly_type == 'all':
                     lines.append('all:read:%s' % path)
                 else:
@@ -287,6 +326,7 @@ class fnx_fs_files(osv.Model):
 
     _name = 'fnx.fs.files'
     _description = 'tracked files'
+    _rec_name = 'shared_as'
     _columns = {
         'user_id': fields.many2one(
             'res.users',
@@ -338,7 +378,19 @@ class fnx_fs_files(osv.Model):
         'entire_folder': fields.boolean('All files in this folder?'),
         'indexed_text': fields.text('Indexed content (TBI)'),
         'notes': fields.text('Notes'),
+        'schedule_period': fields.selection(PERIOD_TYPE, 'Frequency'),
+        'schedule_date': fields.date('Next publish date'),
+        'schedule_time': fields.float('Next publish time'),
+        'scheduled_at': fields.function(
+            _calc_scheduled_at,
+            type='datetime',
+            string='Scheduled Date/Time',
+            store={
+                'fnx.fs.files': (_calc_scheduled_at, ['schedule_date', 'schedule_time'], 10),
+                },
+            ),
         }
+
     _sql_constraints = [
             ('file_uniq', 'unique(file_name)', 'File already exists in system.'),
             ('shareas_uniq', 'unique(shared_as)', 'Shared As name already exists in system.'),
@@ -417,8 +469,12 @@ class fnx_fs_files(osv.Model):
                     old_path.move(new_path)
                 else:
                     raise osv.except_osv('Error', 'Neither %r nor %r exist!' % (old_path, new_path))
+            if 'user_id' in values:
+                owner_id = values['user_id']
+            else:
+                owner_id = rec.user_id.id
             if 'file_name' in values:
-                self._get_remote_file(cr, uid, values, folder_id=folder_id, shared_as=shared_as, context=context)
+                self._get_remote_file(cr, uid, values, owner_id=owner_id, folder_id=folder_id, shared_as=shared_as, context=context)
         success = super(fnx_fs_files, self).write(cr, uid, ids, values, context=context)
         self._write_permissions(cr, uid, context=context)
         return True

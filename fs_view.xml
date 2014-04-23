@@ -62,18 +62,26 @@
             <field name="arch" type="xml">
                 <form string="File System" version="7.0">
                     <header>
-                        <button string="Refresh/Update" name="_scan_fs" type="object"/>
+                        <button string="(re)Publish File" name="fnx_fs_publish_file" type="object" attrs="{'invisible':[('file_type','=','normal')]}"/>
                     </header>
                     <sheet string="Files">
                         <group>
                             <group>
                                 <field name="user_id" readwrite="groups('fnx_fs.group_fnx_fs_manager')" widget="selection" options="{'create':False, 'create_edit':False, 'limit':15}"/>
                                 <field name="file_type"/>
-                                <field name="file_name" class="oe_inline oe_left" attrs="{'invisible':[('file_type','=','normal')]}"/>
-                                <field name="entire_folder" class="oe_inline oe_left" attrs="{'invisible':[('file_type','=','normal')]}"/>
-                                <field name="shared_as" class="oe_inline oe_left" attrs="{'required':[('file_type','=','normal')]}"/>
                                 <field name="folder_id" widget="selection"/>
-                                <field name="full_name" readonly="True"/>
+                                <field name="shared_as" attrs="{'required':[('file_type','=','normal')]}"/>
+                            </group>
+                            <group>
+                                <field name="schedule_period" attrs="{'invisible':[('file_type','!=','auto')], 'required':[('file_type','=','auto')]}"/>
+                                <field name="schedule_date" attrs="{'invisible':[('file_type','!=','auto')], 'required':[('file_type','=','auto')]}"/>
+                                <field name="schedule_time" attrs="{'invisible':[('file_type','!=','auto')], 'required':[('file_type','=','auto')]}" widget="float_time"/>
+                            </group>
+                            <group colspan="4">
+                                <field name="file_name" attrs="{'invisible':[('file_type','=','normal')]}"/>
+                                <field name="entire_folder" attrs="{'invisible':[('file_type','=','normal')]}"/>
+                                <field name="ip_addr" readonly="True" class="oe_inline" attrs="{'invisible':[('file_type','=','normal')]}"/>
+                                <field name="full_name" readonly="True" class="oe_inline" attrs="{'invisible':[('file_type','=','normal')]}"/>
                             </group>
                         </group>
                     <notebook colspan="4">
@@ -99,8 +107,10 @@
                             </group>
                         </page>
                         <page string="Debugging (other fields)">
-                            <field name="ip_addr"/>
-                            <field name="indexed_text"/>
+                            <group>
+                                <field name="scheduled_at"/>
+                                <field name="indexed_text"/>
+                            </group>
                         </page>
                     </notebook>
                     <group string="Notes">
@@ -191,21 +201,6 @@
             sequence="30"
             />
 
-    </data>
-
-    <data noupdate="1">
-        <record model="ir.cron" id="fnx_fs_files_update">
-            <field name="name">Fnx FS Files Update</field>
-            <field name="interval_number">30</field>
-            <field name="interval_type">minutes</field>
-            <field name="numbercall">-1</field>
-            <field name="doall" eval="False"/>
-            <field name="model" eval="'fnx.fs.files'"/>
-            <field name="function" eval="'_scan_fs'"/>
-            <field name="args" eval="'()'"/>
-            <field name="nextcall" eval="'2013-07-31 00:00:00'"/>
-            <field name="priority">100</field>
-        </record>
     </data>
 
 </openerp>

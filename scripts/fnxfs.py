@@ -11,8 +11,8 @@ from collections import defaultdict
 from daemon import DaemonContext
 from daemon.pidfile import PIDLockFile
 from errno import *
-from os import getlogin as get_login, dup
-from pwd import getpwnam as get_pw_entry
+from os import getuid
+from pwd import getpwuid, getpwnam as get_pw_entry
 from scription import Command, FLAG, OPTION, Run
 from stat import S_ISDIR as is_dir
 from sys import argv, exit
@@ -22,6 +22,9 @@ from VSS.paramiko.client import AutoAddPolicy
 from VSS.paramiko.ssh_exception import SSHException
 from VSS.path import Path
 from VSS.xfuse import FUSE, Operations, FuseOSError, LoggingMixIn
+
+def get_login():
+    return getpwuid(getuid())[0]
 
 logging = False
 permission_file = Path('/var/openerp/fnx_fs.permissions')

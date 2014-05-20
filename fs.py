@@ -259,16 +259,22 @@ class fnx_fs_files(osv.Model):
         new_env = os.environ.copy()
         new_env['SSHPASS'] = client_pass
         if file_path is None:
-            remote_cmd = [
-                    '/usr/bin/sshpass', '-e',
-                    '/usr/bin/ssh', 'root@%s' % ip, '/bin/grep',
-                    '%s' % xml_quote(file_name), '/home/%s/.local/share/recently-used.xbel' % login,
-                    #'/home/%s/.recently-used.xbel' % login,
-                    ]
-            # <bookmark href="file:///home/ethan/plain.txt" added="2014-04-09T22:11:34Z" modified="2014-04-11T19:37:48Z" visited="2014-04-09T22:11:35Z">
-            try:
-                output = check_output(remote_cmd, env=new_env)
-            except CalledProcessError, exc:
+            for possible_path in (
+                    '/home/%s/.local/share/recently-used.xbel' % login,
+                    '/home/%s/.recently-used.xbel' % login,
+                    ):
+                try:
+                    remote_cmd = [
+                                '/usr/bin/sshpass', '-e',
+                                '/usr/bin/ssh', 'root@%s' % ip, '/bin/grep',
+                                '%s' % xml_quote(file_name), possible_path,
+                                ]
+                    output = check_output(remote_cmd, env=new_env)
+                except CalledProcessError, exc:
+                    continue
+                else:
+                    break
+            else:
                 raise osv.except_osv('Error','Unable to locate file.\n\n%s\n\n%s' % (exc, exc.output))
             matches = []
             for line in output.split('\n'):

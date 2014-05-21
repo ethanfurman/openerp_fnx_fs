@@ -160,14 +160,6 @@
             <field name="view_mode">list,form</field>
         </record>
 
-        <record model="ir.actions.act_window" id="action_fnx_fs_my_files">
-            <field name="name">Files</field>
-            <field name="res_model">fnx.fs.files</field>
-            <field name="view_type">form</field>
-            <field name="view_id" ref="fnx_fs_files_list"/>
-            <field name="view_mode">list,form</field>
-        </record>
-
         <menuitem
             name="File System" 
             id="fnx_fs_main" 
@@ -191,16 +183,6 @@
             groups="group_fnx_fs_consumer"
             sequence="20"
             />
-
-        <menuitem
-            name="My Shared Files"
-            id="fnx_fs_my_files"
-            parent="fnx_fs_main"
-            action="action_fnx_fs_my_files"
-            groups="group_fnx_fs_creator"
-            sequence="30"
-            />
-
     </data>
 
 </openerp>

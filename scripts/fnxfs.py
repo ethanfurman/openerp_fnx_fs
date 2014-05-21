@@ -1,21 +1,31 @@
 #!/usr/local/bin/suid-python
+from __future__ import print_function
 
 # this must happen first!
 import __builtin__
 from VSS.utils import Open
 __builtin__.open = Open()
-# okay
 
+# this must happen second!
+import sys
+try:
+    sys.path.remove('/usr/local/lib/python2.6/dist-packages')
+except ValueError:
+    pass
+sys.path.insert(0, '/usr/local/lib/python2.6/dist-packages')
+del sys
+
+# okay
 
 from collections import defaultdict
 from daemon import DaemonContext
-from daemon.pidfile import PIDLockFile
+from daemon.runner import is_pidfile_stale, make_pidlockfile
 from errno import *
 from os import getuid
 from pwd import getpwuid, getpwnam as get_pw_entry
 from scription import Command, FLAG, OPTION, Run
 from stat import S_ISDIR as is_dir
-from sys import argv, exit
+from sys import argv, exit, stderr
 from time import time
 from VSS.paramiko import SSHClient
 from VSS.paramiko.client import AutoAddPolicy
@@ -26,27 +36,41 @@ from VSS.xfuse import FUSE, Operations, FuseOSError, LoggingMixIn
 def get_login():
     return getpwuid(getuid())[0]
 
+def logger(*words):
+    if not words:
+        words = ('', )
+    text = ' '.join(str(w) for w in words)
+    print(text, file=error_log)
+    error_log.flush()
+
 logging = False
 permission_file = Path('/var/openerp/fnx_fs.permissions')
 user = get_login()
+pwd_entry = getpwuid(getuid())
+user = pwd_entry.pw_name
+uid = pwd_entry.pw_uid
+gid = pwd_entry.pw_gid
 user_home = Path('/home/%s' % user)
 client_root = user_home/'fnx_fs'
-user_pid_file = Path('/var/tmp/fnxfs-%s.pid' %user)
+user_pid_file = Path('/var/tmp/fnxfs-%s-%%s.pid' % user)
 
 @Command(
         config=('location of configuration file', OPTION, 'c', Path),
         mount_point=('where to attach FnxFS file system', OPTION, 'm', Path),
         foreground=('remain in foreground', FLAG, 'f'),
         threads=('use threads', FLAG, 't'),
+        log=('information logging', FLAG),
         )
 def fnxfs(
         config=Path('/usr/local/etc/fnx_fs'),
         mount_point=client_root,
         foreground=False,
         threads=False,
+        log=False,
         ):
+
     global logging
-    logging = foreground
+    logging = foreground or log
 
     execfile(config, globals())
 
@@ -65,14 +89,14 @@ def fnxfs(
             self._client.load_system_host_keys()
             self._client.set_missing_host_key_policy(AutoAddPolicy())
             if logging:
-                print 'connecting as', server_user, 'to', host
+                logger('connecting as', server_user, 'to', host)
             self._client.connect(host, username=server_user, password=server_pass)
             self._sftp = self._client.open_sftp()
             self._root = Path('/var/openerp/fnx_fs/')
             self._user = user
             pwd_entry = get_pw_entry(self._user)
-            self._uid = pwd_entry.pw_uid
-            self._gid = pwd_entry.pw_gid
+            self._uid = uid
+            self._gid = gid
             self._permission_state = None
             self._file_permissions = {}
             self._visible = defaultdict(set)
@@ -91,7 +115,7 @@ def fnxfs(
             except SSHException:
                 try:
                     if logging:
-                        print 'connection dropped, attempting to reestablish'
+                        logger('connection dropped, attempting to reestablish')
                     self._client.connect(self._host)
                     self._sftp = self._client.open_sftp()
                     current_state = self._sftp.stat(permission_file)
@@ -104,16 +128,23 @@ def fnxfs(
                 self._visible = defaultdict(set)
                 target = self._user + ':'
                 for line in permissions:
+                    if logging:
+                        logger(line, )
                     if not line.startswith((target, 'all:')):
+                        if logging:
+                            logger('  [skipping]')
                         continue
+                    if logging:
+                        logger('')
                     user, perm, fn = line.strip().split(':')
                     fn = Path(fn)
                     file = fn.lstrip('/')
                     path = fn.path.strip('/')
+                    ep = self._file_permissions.get(file, 0)
                     if perm == 'write':
-                        self._file_permissions[file] = 0o600
+                        self._file_permissions[file] = ep | 0o600
                     elif perm == 'read':
-                        self._file_permissions[file] = 0o400
+                        self._file_permissions[file] = ep | 0o400
                     else:
                         raise FuseOSError('Corrupted permissions file')
                     self._visible[path].add(file.filename)
@@ -125,10 +156,10 @@ def fnxfs(
                             stem /= dir
                         self._visible[stem].add(path.filename)
                 if logging:
-                    print
+                    logger('')
                     for key, paths in sorted(self._visible.items()):
-                        print key, '-->', paths
-                    print
+                        logger(key, '-->', paths)
+                    logger('')
                 self._permission_state = current_state
        
         def getattr(self, path, fh=None):
@@ -162,11 +193,26 @@ def fnxfs(
         def readdir(self, path, fh):
             files = self._sftp.listdir_attr(path)
             allowed_dirs = self._visible.keys()
+            if logging:
+                for f in files:
+                    logger(f)
+                logger('')
+                for d in allowed_dirs:
+                    logger(d)
             if path == self._root:
                 names = [f.filename for f in files if (not is_dir(f.st_mode) or f.filename in allowed_dirs)]
             else:
                 path -= self._root
                 allowed_files = self._visible[path]
+                allowed_files.add(Path('README'))
+                if logging:
+                    logger('readdir\n=======')
+                    logger('    allowed files:')
+                    for f in allowed_files:
+                        logger('\t', f)
+                    logger('    found files:')
+                    for f in files:
+                        logger('\t', f)
                 names = [f.filename for f in files if (f.filename in allowed_files or f.filename in allowed_dirs)]
             return ['.', '..'] + names
 
@@ -190,8 +236,24 @@ def fnxfs(
             f.close()
             return len(data)
 
-    if mount_point == client_root and not mount_point.exists():
-        mount_point.mkdir()
+    mpt = str(mount_point).replace('/','_').strip('_')
+    pid_file = make_pidlockfile(user_pid_file % mpt, -1)
+    if is_pidfile_stale(pid_file):
+        pid_file.break_lock()
+    elif pid_file.is_locked():
+        raise SystemExit("fnxfs appears to already be running")
+    global error_log
+    error_log = open('/var/log/fnxfs.%s.log' % mpt, 'w')
+    if logging:
+        logger('mount point:', mount_point, ('does not exist', 'exists')[mount_point.exists()])
+    if mount_point == client_root:
+        if not mount_point.exists():
+            try:
+                mount_point.mkdir()
+            except OSError:
+                raise SystemExit('Unable to allocate mount point')
+        mount_point.chown(uid, gid)
+
     elif not mount_point.exists():
         raise OSError(ENOENT, 'directory does not exist', mount_point)
     if foreground:
@@ -203,11 +265,9 @@ def fnxfs(
                     nothreads=not threads)
     else:
         daemon = DaemonContext()
-        mpt = str(mount_point).replace('/','_').strip('_')
-        log = open('/var/log/fnxfs.%s.log' % mpt, 'w')
-        daemon.stderr = log
+        daemon.stderr = error_log
         daemon.files_preserve = [open.active('/dev/urandom')]
-        daemon.pidfile = PIDLockFile(user_pid_file)
+        daemon.pidfile = pid_file
         with daemon:
             fuse = FUSE(
                         FnxFS(host=openerp, server_user=server_user, server_pass=server_pass, user=user),

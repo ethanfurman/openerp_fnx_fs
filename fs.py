@@ -71,6 +71,7 @@ class fnx_fs_folders(osv.Model):
     _name = 'fnx.fs.folders'
     _description = 'where shared files show up'
     _rec_name = 'path'
+    _order = 'path asc'
     _columns = {
         'name': fields.char('Folder Name', size=64, required=True),
         'path': fields.function(

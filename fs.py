@@ -202,7 +202,7 @@ class fnx_fs_files(osv.Model):
     def fnx_fs_scheduled_publish(self, cr, uid, context=None):
         publishable_files = self.fnx_fs_publish_times(cr, uid, context=context)
         for rec in publishable_files:
-            if rec.scheduled_at < DateTime.now():
+            if rec.scheduled_at > DateTime.now():
                 break
             self._get_remote_file(cr, uid, {},
                     owner_id=rec.user_id.id, file_path=rec.full_name, ip=rec.ip_addr,
@@ -416,7 +416,6 @@ class fnx_fs_files(osv.Model):
         if values['file_type'] == 'normal':
             if not shared_as.ext:
                 osv.except_osv('Error', 'Shared name should have an extension indicating file type.')
-            open(fs_root/current.folder_id.path/current.shared_as, 'w').close()
         else:
             values['ip_addr'] = context['__client_address__']
             source_file = Path(values['file_name'])
@@ -426,6 +425,8 @@ class fnx_fs_files(osv.Model):
         new_id = super(fnx_fs_files, self).create(cr, uid, values, context=context)
         self._write_permissions(cr, uid, context=context)
         current = self.browse(cr, uid, new_id)
+        if values['file_type'] == 'normal':
+            open(fs_root/current.folder_id.path/current.shared_as, 'w').close()
         return new_id
 
     def unlink(self, cr, uid, ids, context=None):

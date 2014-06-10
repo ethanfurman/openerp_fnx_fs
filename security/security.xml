@@ -67,6 +67,7 @@
             <field name="nextcall" eval="'2014-04-23 00:00:00'"/>
             <field name="priority">100</field>
         </record>
+
     </data>
 
 </openerp>

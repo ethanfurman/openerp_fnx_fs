@@ -260,34 +260,10 @@ class fnx_fs_files(osv.Model):
         new_env = os.environ.copy()
         new_env['SSHPASS'] = client_pass
         if file_path is None:
-            for possible_path in (
-                    '/home/%s/.local/share/recently-used.xbel' % login,
-                    '/home/%s/.recently-used.xbel' % login,
-                    ):
-                try:
-                    remote_cmd = [
-                                '/usr/bin/sshpass', '-e',
-                                '/usr/bin/ssh', 'root@%s' % ip, '/bin/grep',
-                                '%s' % xml_quote(file_name), possible_path,
-                                ]
-                    output = check_output(remote_cmd, env=new_env)
-                except CalledProcessError, exc:
-                    continue
-                else:
-                    break
-            else:
-                raise osv.except_osv('Error','Unable to locate file.\n\n%s\n\n%s' % (exc, exc.output))
-            matches = []
-            for line in output.split('\n'):
-                if not line:
-                    continue
-                _, href, added, modied, visited = line.split()
-                file_path = href.partition('://')[2].strip('"')
-                added = DateTime(added.split('"')[1])
-                modied = DateTime(modied.split('"')[1])
-                matches.append((modied, file_path))
-            matches.sort(reverse=True)
-            file_path = values['full_name'] = xml_unquote(matches[0][1])
+            try:
+                file_path = values['full_name'] = Path(self._remote_locate(file_name, context=context))/file_name
+            except OSError, exc:
+                raise osv.except_osv('Error','Unable to locate file.\n\n%s\n' % (exc, ))
         copy_cmd = [
                 '/usr/bin/sshpass', '-e',
                 '/usr/bin/scp', 'root@%s:"%s"' % (ip, file_path),
@@ -297,6 +273,25 @@ class fnx_fs_files(osv.Model):
             output = check_output(copy_cmd, env=new_env)
         except CalledProcessError, exc:
             raise osv.except_osv('Error','Unable to copy file.\n\n%s\n\n%s' % (exc, exc.output))
+
+    def _remote_locate(self, file_name, context=None):
+        if context is None:
+            context = {}
+        client = context.get('__client_address__')
+        if client is None:
+            osv.except_osv('Error','Unable to locate remote copy because client ip is missing')
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((client, 8069))
+        sock.sendall(file_name + '\n')
+        data = sock.recv(1024)
+        sock.close()
+        status, result = data.split(':', 1)
+        if status == 'error':
+            error = getattr(errno, result, None)
+            if error is None:
+                raise OSError(result)
+            raise OSError(error)
+        return result
 
     def _write_permissions(self, cr, uid, context=None):
         # write a file in the form of:

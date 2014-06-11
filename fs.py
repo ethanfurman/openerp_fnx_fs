@@ -202,7 +202,7 @@ class fnx_fs_files(osv.Model):
     def fnx_fs_scheduled_publish(self, cr, uid, context=None):
         publishable_files = self.fnx_fs_publish_times(cr, uid, context=context)
         for rec in publishable_files:
-            if rec.scheduled_at > DateTime.now():
+            if DateTime(rec.scheduled_at) > DateTime.now():
                 break
             self._get_remote_file(cr, uid, {},
                     owner_id=rec.user_id.id, file_path=rec.full_name, ip=rec.ip_addr,

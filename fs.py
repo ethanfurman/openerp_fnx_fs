@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import shutil
+import socket
 import threading
 
 _logger = logging.getLogger(__name__)
@@ -261,7 +262,8 @@ class fnx_fs_files(osv.Model):
         new_env['SSHPASS'] = client_pass
         if file_path is None:
             try:
-                file_path = values['full_name'] = Path(self._remote_locate(file_name, context=context))/file_name
+                path = self._remote_locate(file_name, context=context)
+                file_path = values['full_name'] = path/file_name
             except OSError, exc:
                 raise osv.except_osv('Error','Unable to locate file.\n\n%s\n' % (exc, ))
         copy_cmd = [
@@ -280,9 +282,12 @@ class fnx_fs_files(osv.Model):
         client = context.get('__client_address__')
         if client is None:
             osv.except_osv('Error','Unable to locate remote copy because client ip is missing')
+        uid = context.get('uid')
+        res_users = self.pool.get('res.users')
+        user = res_users.browse(cr, 1, uid).login
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((client, 8069))
-        sock.sendall(file_name + '\n')
+        sock.sendall('service:find_path\nuser:%s\nfile_name:%s\n' % (user, file_name))
         data = sock.recv(1024)
         sock.close()
         status, result = data.split(':', 1)
@@ -291,7 +296,9 @@ class fnx_fs_files(osv.Model):
             if error is None:
                 raise OSError(result)
             raise OSError(error)
-        return result
+        elif status == 'exception':
+            raise Exception(result)
+        return Path(result)
 
     def _write_permissions(self, cr, uid, context=None):
         # write a file in the form of:

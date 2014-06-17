@@ -262,7 +262,7 @@ class fnx_fs_files(osv.Model):
         new_env['SSHPASS'] = client_pass
         if file_path is None:
             try:
-                path = self._remote_locate(file_name, context=context)
+                path = self._remote_locate(cr, file_name, context=context)
                 file_path = values['full_name'] = path/file_name
             except OSError, exc:
                 raise osv.except_osv('Error','Unable to locate file.\n\n%s\n' % (exc, ))
@@ -276,7 +276,7 @@ class fnx_fs_files(osv.Model):
         except CalledProcessError, exc:
             raise osv.except_osv('Error','Unable to copy file.\n\n%s\n\n%s' % (exc, exc.output))
 
-    def _remote_locate(self, file_name, context=None):
+    def _remote_locate(self, cr, file_name, context=None):
         if context is None:
             context = {}
         client = context.get('__client_address__')
@@ -284,7 +284,7 @@ class fnx_fs_files(osv.Model):
             osv.except_osv('Error','Unable to locate remote copy because client ip is missing')
         uid = context.get('uid')
         res_users = self.pool.get('res.users')
-        user = res_users.browse(cr, 1, uid).login
+        user = res_users.browse(cr, SUPERUSER, uid).login
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((client, 8069))
         sock.sendall('service:find_path\nuser:%s\nfile_name:%s\n' % (user, file_name))

@@ -7,7 +7,7 @@ import pandaemonium
 from dbf import DateTime
 from pandaemonium import PidLockFile
 from path import Path
-from scription import Command, FLAG, OPTION, Run
+from scription import Command, REQUIRED, FLAG, OPTION, Run
 from time import time
 
 

@@ -2,27 +2,19 @@
 
 from __future__ import print_function
 
-import os
 import pandaemonium
-import traceback
 
-from collections import defaultdict
-from errno import *
+from dbf import DateTime
 from pandaemonium import PidLockFile
 from path import Path
-from pwd import getpwuid, getpwnam as get_pw_entry
 from scription import Command, FLAG, OPTION, Run, Int
-from stat import S_ISDIR as is_dir, ST_MODE, ST_UID, ST_GID
-from threading import Lock
 from time import time
 
-logging = False
+
 pid_file = Path('/var/openerp/%s.pid' % user)
 fs_root = Path('/var/openerp/fnx_fs')
 archive_root = Path('/var/openerp/fnx_fs_archive')
 
-READ_PERM = os.O_RDONLY | os.O_RDWR
-WRITE_PERM = os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_TRUNC
 
 @Command(
         src=('file to copy', REQUIRED, 's', Path),

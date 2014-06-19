@@ -247,7 +247,7 @@ class fnx_fs_files(osv.Model):
     def _get_remote_file(self, cr, uid, values,
             owner_id=None, file_path=None, ip=None, shared_as=None, folder_id=None,
             context=None):
-        with copy_lock:
+        with self.copy_lock:
             fnx_fs_folders = self.pool.get('fnx.fs.folders')
             if folder_id is None:
                 folder_id = values['folder_id']

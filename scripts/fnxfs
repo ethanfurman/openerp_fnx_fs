@@ -7,7 +7,7 @@ import pandaemonium
 from dbf import DateTime
 from pandaemonium import PidLockFile
 from path import Path
-from scription import Command, FLAG, OPTION, Run, Int
+from scription import Command, FLAG, OPTION, Run
 from time import time
 
 
@@ -19,7 +19,7 @@ archive_root = Path('/var/openerp/fnx_fs_archive')
 @Command(
         src=('file to copy', REQUIRED, 's', Path),
         dst=('where to put it (and possibly new name', REQUIRED, 'd', Path),
-        timeout=('how long to wait for lock', OPTION, 't', Int),
+        timeout=('how long to wait for lock', OPTION, 't', int),
         )
 def cp(
         src,

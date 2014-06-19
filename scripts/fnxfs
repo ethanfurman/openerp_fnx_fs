@@ -37,6 +37,23 @@ def cp(
         archive_dst.mkdirs()
         src.copy(archive_dst)
         src.copy(dst)
+
+
+@Command(
+        src=('file to archive', REQUIRED, 'f', Path),
+        )
+def archive(src):
+    """
+    copy existing FnxFS file into the archive
+    """
+    if not src.exists():
+        raise SystemExit('source file does not exist')
+    with PidLockFile(pid_file % src.filename):
+        archive_dst = archive_root / (src - fs_root)
+        archive_dst = next_archive_name(archive_dst)
+        archive_dst.mkdirs()
+        src.copy(archive_dst)
+
     
 def next_archive_name(archive_path):
     """

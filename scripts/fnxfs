@@ -11,7 +11,7 @@ from scription import Command, FLAG, OPTION, Run
 from time import time
 
 
-pid_file = Path('/var/openerp/%s.pid' % user)
+pid_file = Path('/var/openerp/%s.pid')
 fs_root = Path('/var/openerp/fnx_fs')
 archive_root = Path('/var/openerp/fnx_fs_archive')
 

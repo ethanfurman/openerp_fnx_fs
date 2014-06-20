@@ -283,50 +283,20 @@ class fnx_fs_files(osv.Model):
                     file_path = values['full_name'] = path/file_name
                 except OSError, exc:
                     raise osv.except_osv('Error','Unable to locate file.\n\n%s\n' % (exc, ))
-            archive_name = self._next_archive_name(archive_root/folder/shared_as)
-            archive_name.mkdirs()
-            archive_cmd = [
+            copy_cmd = [
                     '/usr/bin/sshpass', '-e',
                     '/usr/bin/scp', 'root@%s:"%s"' % (ip, file_path),
-                    archive_name,
+                    fs_root/folder/shared_as,
                     ]
             try:
                 output = check_output(copy_cmd, env=new_env)
             except CalledProcessError, exc:
                 raise osv.except_osv('Error','Unable to retrieve file.\n\n%s\n\n%s' % (exc, exc.output))
-            #copy_cmd = [
-            #        '/usr/bin/sshpass', '-e',
-            #        '/usr/bin/scp', 'root@%s:"%s"' % (ip, file_path),
-            #        fs_root/folder/shared_as,
-            #        ]
+            archive_cmd = ['/usr/local/bin/fnxfs', 'archive', fs_root/folder/shared_as]
             try:
-                #output = check_output(copy_cmd, env=new_env)
-                archive_name.copy(fs_root/folder/shared_as)
+                output = check_output(archive_cmd, env=new_env)
             except Exception, exc:
                 raise osv.except_osv('Error','Unable to install file into FnxFS Share.\n\n%s' % (exc, ))
-
-    def _next_archive_name(self, archive_path):
-        """
-        archive_path is the folder holding the archive copies
-
-        if the source file is
-
-          /fs_root/Production/Q_ALL.ods
-
-        then the archive path and file name will be
-
-          /archive_root/Production/Q_ALL.ods/[time_stamp]
-
-        if a file already exists with the current time stamp, sleep for one second and grab
-        the next one
-        """
-        while True:
-            time_stamp = DateTime.now().strftime('%Y-%m-%d_%H:%M:%S')
-            archive_name = archive_path/time_stamp
-            if archive_name.exists():
-                time.sleep(1)
-            else:
-                return archive_name
 
     def _remote_locate(self, cr, user, file_name, context=None):
         if context is None:

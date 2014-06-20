@@ -31,14 +31,14 @@ def cp(
     """
     if not dst.exists():
         raise SystemExit('destination file does not exist')
-    if archive_needed(dst):
-        archive_dst = archive_root / (dst - fs_root)
-        if not archive_dst.exists():
-            archive_dst.mkdirs()
-        with PidLockFile(archive_dst/'locked.pid', timeout=timeout):
-            archive_dst = next_archive_name(archive_dst)
-            src.copy(archive_dst)
-            src.copy(dst)
+    archive_dst = archive_root / (dst - fs_root)
+    if not archive_dst.exists():
+        archive_dst.mkdirs()
+    with PidLockFile(archive_dst/'locked.pid', timeout=timeout):
+        src.copy(dst)
+        if archive_needed(dst)
+        archive_dst = next_archive_name(archive_dst)
+        src.copy(archive_dst)
 
 
 @Command(

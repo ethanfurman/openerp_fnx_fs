@@ -11,7 +11,6 @@ from scription import Command, REQUIRED, FLAG, OPTION, Run
 from time import time
 
 
-pid_file = Path('/var/openerp/%s.pid')
 fs_root = Path('/var/openerp/fnx_fs')
 archive_root = Path('/var/openerp/fnx_fs_archive')
 
@@ -31,8 +30,8 @@ def cp(
     """
     if not dst.exists():
         raise SystemExit('destination file does not exist')
-    with PidLockFile(pid_file % dst.filename, timeout=timeout):
-        archive_dst = archive_root / (dst - fs_root)
+    archive_dst = archive_root / (dst - fs_root)
+    with PidLockFile(archive_dst/'locked.pid', timeout=timeout):
         archive_dst = next_archive_name(archive_dst)
         archive_dst.mkdirs()
         src.copy(archive_dst)
@@ -48,8 +47,8 @@ def archive(src):
     """
     if not src.exists():
         raise SystemExit('source file does not exist')
-    with PidLockFile(pid_file % src.filename):
-        archive_dst = archive_root / (src - fs_root)
+    archive_dst = archive_root / (src - fs_root)
+    with PidLockFile(archive_dst/'locked.pid')):
         archive_dst = next_archive_name(archive_dst)
         archive_dst.mkdirs()
         src.copy(archive_dst)

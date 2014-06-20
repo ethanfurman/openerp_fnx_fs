@@ -48,7 +48,7 @@ def archive(src):
     if not src.exists():
         raise SystemExit('source file does not exist')
     archive_dst = archive_root / (src - fs_root)
-    with PidLockFile(archive_dst/'locked.pid')):
+    with PidLockFile(archive_dst/'locked.pid'):
         archive_dst = next_archive_name(archive_dst)
         archive_dst.mkdirs()
         src.copy(archive_dst)

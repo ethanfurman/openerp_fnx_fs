@@ -31,6 +31,8 @@ def cp(
     if not dst.exists():
         raise SystemExit('destination file does not exist')
     archive_dst = archive_root / (dst - fs_root)
+    if not archive_dst.exists():
+        archive_dst.mkdirs()
     with PidLockFile(archive_dst/'locked.pid', timeout=timeout):
         archive_dst = next_archive_name(archive_dst)
         archive_dst.mkdirs()
@@ -48,6 +50,8 @@ def archive(src):
     if not src.exists():
         raise SystemExit('source file does not exist')
     archive_dst = archive_root / (src - fs_root)
+    if not archive_dst.exists():
+        archive_dst.mkdirs()
     with PidLockFile(archive_dst/'locked.pid'):
         archive_dst = next_archive_name(archive_dst)
         archive_dst.mkdirs()

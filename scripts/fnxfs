@@ -8,7 +8,7 @@ from dbf import DateTime
 from pandaemonium import PidLockFile
 from path import Path
 from scription import Command, REQUIRED, FLAG, OPTION, Run
-from time import time
+import time
 
 
 fs_root = Path('/var/openerp/fnx_fs')
@@ -35,7 +35,6 @@ def cp(
         archive_dst.mkdirs()
     with PidLockFile(archive_dst/'locked.pid', timeout=timeout):
         archive_dst = next_archive_name(archive_dst)
-        archive_dst.mkdirs()
         src.copy(archive_dst)
         src.copy(dst)
 
@@ -54,7 +53,6 @@ def archive(src):
         archive_dst.mkdirs()
     with PidLockFile(archive_dst/'locked.pid'):
         archive_dst = next_archive_name(archive_dst)
-        archive_dst.mkdirs()
         src.copy(archive_dst)
 
     

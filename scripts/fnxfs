@@ -8,6 +8,7 @@ from dbf import DateTime
 from pandaemonium import PidLockFile
 from path import Path
 from scription import Command, REQUIRED, FLAG, OPTION, Run
+import errno
 import sys
 import time
 
@@ -34,11 +35,11 @@ def cp(
     archive_dst = archive_root / (dst - fs_root)
     if not archive_dst.exists():
         archive_dst.mkdirs()
-    with PidLockFile(archive_dst/'locked.pid', timeout=timeout):
+    with PidLockFile(archive_dst/'locked.pid', time_out=timeout):
         src.copy(dst)
-        if archive_needed(dst)
-        archive_dst = next_archive_name(archive_dst)
-        src.copy(archive_dst)
+        if archive_needed(dst):
+            archive_dst = next_archive_name(archive_dst)
+            src.copy(archive_dst)
 
 
 @Command(
@@ -88,7 +89,7 @@ def archive_needed(src):
     """
     # use st_size, st_atime, st_mtime
     archive = archive_root / (src - fs_root)
-    arc = sorted(archive.list_dir())[-1]
+    arc = sorted(archive.listdir())[-1]
     src_meta = src.stat()[6:9]
     try:
         arc_meta = arc.stat()[6:9]

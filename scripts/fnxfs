@@ -8,6 +8,7 @@ from dbf import DateTime
 from pandaemonium import PidLockFile
 from path import Path
 from scription import Command, REQUIRED, FLAG, OPTION, Run
+import sys
 import time
 
 
@@ -30,13 +31,14 @@ def cp(
     """
     if not dst.exists():
         raise SystemExit('destination file does not exist')
-    archive_dst = archive_root / (dst - fs_root)
-    if not archive_dst.exists():
-        archive_dst.mkdirs()
-    with PidLockFile(archive_dst/'locked.pid', timeout=timeout):
-        archive_dst = next_archive_name(archive_dst)
-        src.copy(archive_dst)
-        src.copy(dst)
+    if archive_needed(dst):
+        archive_dst = archive_root / (dst - fs_root)
+        if not archive_dst.exists():
+            archive_dst.mkdirs()
+        with PidLockFile(archive_dst/'locked.pid', timeout=timeout):
+            archive_dst = next_archive_name(archive_dst)
+            src.copy(archive_dst)
+            src.copy(dst)
 
 
 @Command(
@@ -48,12 +50,13 @@ def archive(src):
     """
     if not src.exists():
         raise SystemExit('source file does not exist')
-    archive_dst = archive_root / (src - fs_root)
-    if not archive_dst.exists():
-        archive_dst.mkdirs()
-    with PidLockFile(archive_dst/'locked.pid'):
-        archive_dst = next_archive_name(archive_dst)
-        src.copy(archive_dst)
+    if archive_needed(src):
+        archive_dst = archive_root / (src - fs_root)
+        if not archive_dst.exists():
+            archive_dst.mkdirs()
+        with PidLockFile(archive_dst/'locked.pid'):
+            archive_dst = next_archive_name(archive_dst)
+            src.copy(archive_dst)
 
     
 def next_archive_name(archive_path):
@@ -78,7 +81,24 @@ def next_archive_name(archive_path):
             time.sleep(1)
         else:
             return archive_name
-            
+
+def archive_needed(src):
+    """
+    return True if the metadata on src differs from the latest archive version's
+    """
+    # use st_size, st_atime, st_mtime
+    archive = archive_root / (src - fs_root)
+    arc = sorted(archive.list_dir())[-1]
+    src_meta = src.stat()[6:9]
+    try:
+        arc_meta = arc.stat()[6:9]
+    except OSError:
+        exc = sys.exc_info()[1]
+        if exc.errno != errno.ENOENT:
+            raise
+        return True
+    return src_meta != arc_meta
+
 
 if __name__ == "__main__":
     Run()

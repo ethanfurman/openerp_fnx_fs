@@ -2,11 +2,13 @@ from fnx import check_company_settings, get_user_login, get_user_timezone, DateT
 from fnx.path import Path
 from fnx.utils import xml_quote, xml_unquote
 from openerp import SUPERUSER_ID as SUPERUSER
+from osv.osv import except_osv as ERPError
 from osv import osv, fields
 from pwd import getpwuid
 from pytz import timezone
 from subprocess import check_output, CalledProcessError
 from tempfile import NamedTemporaryFile
+import errno
 import logging
 import os
 import re
@@ -113,7 +115,7 @@ class fnx_fs_folders(osv.Model):
         while parent_id:
             rec = folders[parent_id]
             if id is not None and id == rec.id:
-                raise osv.except_osv('Error', 'Current parent assignment creates a loop!')
+                raise ERPError('Error', 'Current parent assignment creates a loop!')
             parent = folders[parent_id]
             path.append(parent.name)
             parent_id = parent.parent_id.id
@@ -146,7 +148,7 @@ class fnx_fs_folders(osv.Model):
                     old = old_path.exists()
                     new = new_path.exists()
                     if old and new:
-                        raise osv.except_osv('Error', '%r already exists.' % new_path)
+                        raise ERPError('Error', '%r already exists.' % new_path)
                     elif old and not new:
                         old_path.move(new_path)
                     elif not new:
@@ -190,8 +192,8 @@ class fnx_fs_files(osv.Model):
         res_users = self.pool.get('res.users')
         records = self.browse(cr, uid, ids, context=context)
         if uid != SUPERUSER and not any(uid == rw.id for rw in rec.readwrite_ids for rec in records):
-            raise osv.except_osv('Error', 'You do not have write permission for this file.')
-        raise osv.except_osv('Not Implemented', 'This feature is not yet implemented.')
+            raise ERPError('Error', 'You do not have write permission for this file.')
+        raise ERPError('Not Implemented', 'This feature is not yet implemented.')
 
     def fnx_fs_publish_times(self, cr, uid, ids=None, context=None):
         if ids is None:
@@ -264,25 +266,26 @@ class fnx_fs_files(osv.Model):
             new_env = os.environ.copy()
             new_env['SSHPASS'] = client_pass
             if file_path is None:
+                uid = context.get('uid')
+                res_users = self.pool.get('res.users')
+                user = res_users.browse(cr, SUPERUSER, uid).login
                 try:
-                    uid = context.get('uid')
-                    res_users = self.pool.get('res.users')
-                    user = res_users.browse(cr, SUPERUSER, uid).login
                     path = self._remote_locate(cr, user, file_name, context=context)
-                    elements = path.dir_elements
-                    if len(elements) < 3 or elements[2] != user:
-                        osv.except_osv(
-                                'Unshareable File',
-                                'Only files in your home directory or its subfolders can be shared.',
-                                )
-                    elif len(elements) > 3 and elements[4] == 'fnx_fs':
-                        osv.except_osv(
-                                'Unshareable File',
-                                'Cannot share files directely from the fnx_fs shared directory.',
-                                )
-                    file_path = values['full_name'] = path/file_name
-                except OSError, exc:
-                    raise osv.except_osv('Error','Unable to locate file.\n\n%s\n' % (exc, ))
+                except Exception, exc:
+                    raise ERPError("Error", "Unable to locate file.\n\n%s" % exc)
+                elements = path.elements
+                print elements
+                if len(elements) < 3 or elements[2] != user:
+                    raise ERPError(
+                            'Unshareable File',
+                            'Only files in your home directory or its subfolders can be shared.',
+                            )
+                elif len(elements) >= 3 and elements[3] == 'fnx_fs':
+                    raise ERPError(
+                            'Unshareable File',
+                            'Cannot share files directely from the fnx_fs shared directory.',
+                            )
+                file_path = values['full_name'] = path/file_name
             copy_cmd = [
                     '/usr/bin/sshpass', '-e',
                     '/usr/bin/scp', 'root@%s:"%s"' % (ip, file_path),
@@ -291,19 +294,19 @@ class fnx_fs_files(osv.Model):
             try:
                 output = check_output(copy_cmd, env=new_env)
             except CalledProcessError, exc:
-                raise osv.except_osv('Error','Unable to retrieve file.\n\n%s\n\n%s' % (exc, exc.output))
+                raise ERPError('Error','Unable to retrieve file.\n\n%s\n\n%s' % (exc, exc.output))
             archive_cmd = ['/usr/local/bin/fnxfs', 'archive', fs_root/folder/shared_as]
             try:
                 output = check_output(archive_cmd, env=new_env)
             except Exception, exc:
-                raise osv.except_osv('Error','Unable to install file into FnxFS Share.\n\n%s' % (exc, ))
+                raise ERPError('Error','Unable to archive file:\n\n%s' % (exc, ))
 
     def _remote_locate(self, cr, user, file_name, context=None):
         if context is None:
             context = {}
         client = context.get('__client_address__')
         if client is None:
-            osv.except_osv('Error','Unable to locate remote copy because client ip is missing')
+            ERPError('Error','Unable to locate remote copy because client ip is missing')
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((client, 8069))
         sock.sendall('service:find_path\nuser:%s\nfile_name:%s\n' % (user, file_name))
@@ -317,7 +320,7 @@ class fnx_fs_files(osv.Model):
             raise OSError(error)
         elif status == 'exception':
             raise Exception(result)
-        return Path(result)
+        return Path(result.strip())
 
     def _write_permissions(self, cr, uid, context=None):
         # write a file in the form of:
@@ -436,7 +439,7 @@ class fnx_fs_files(osv.Model):
         shared_as = Path(values['shared_as'])
         if values['file_type'] == 'normal':
             if not shared_as.ext:
-                osv.except_osv('Error', 'Shared name should have an extension indicating file type.')
+                ERPError('Error', 'Shared name should have an extension indicating file type.')
         else:
             values['ip_addr'] = context['__client_address__']
             source_file = Path(values['file_name'])
@@ -493,11 +496,11 @@ class fnx_fs_files(osv.Model):
                 old = old_path.exists()
                 new = new_path.exists()
                 if old and new:
-                    raise osv.except_osv('Error', '%r already exists.' % new_path)
+                    raise ERPError('Error', '%r already exists.' % new_path)
                 elif old and not new:
                     old_path.move(new_path)
                 else:
-                    raise osv.except_osv('Error', 'Neither %r nor %r exist!' % (old_path, new_path))
+                    raise ERPError('Error', 'Neither %r nor %r exist!' % (old_path, new_path))
             if 'user_id' in values:
                 owner_id = values['user_id']
             else:

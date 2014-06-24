@@ -479,7 +479,7 @@ class fnx_fs_files(osv.Model):
             shared_as = Path(values.get('shared_as', rec.shared_as))
             folder_id = values.get('folder_id', rec.folder_id.id)
             old_path = fs_root/rec.folder_id.path/rec.shared_as
-            if shared_as.ext not in ('.', sfe):
+            if source_file and shared_as.ext not in ('.', sfe):
                 shared_as += source_file.ext
                 values['shared_as'] = shared_as
             if 'shared_as' in values or 'folder_id' in values:

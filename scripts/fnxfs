@@ -89,7 +89,13 @@ def archive_needed(src):
     """
     # use st_size, st_atime, st_mtime
     archive = archive_root / (src - fs_root)
-    arc = sorted(archive.listdir())[-1]
+    try:
+        arc = sorted(archive.listdir())[-1]
+    except OSError:
+        exc = sys.exc_info()[1]
+        if exc.errno != errno.ENOENT:
+            raise
+        return True
     src_meta = src.stat()[6:9]
     try:
         arc_meta = arc.stat()[6:9]

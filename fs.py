@@ -117,7 +117,7 @@ class fnx_fs_folder(osv.Model):
         ('folder_uniq', 'unique(name)', 'Folder already exists in system.'),
         ]
     _defaults = {
-        'readonly_type': lambda s, c, u, ctx=None: 'all',
+        'readonly_type': lambda s, c, u, ctx=None: 'selected',
         }
 
     def _get_path(self, cr, uid, parent_id, name, id=None, context=None):

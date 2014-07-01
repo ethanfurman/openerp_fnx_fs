@@ -1,6 +1,6 @@
 {
    'name': 'Fnx File System',
-    'version': '0.2',
+    'version': '0.7',
     'category': 'Generic Modules',
     'description': """\
             Phoenix file management system.
@@ -18,7 +18,6 @@
     'update_xml': [
             'security/security.xml',
             'security/ir.model.access.csv',
-            'res_config_view.xml',
             'fs_view.xml',
         ],
     'test': [],

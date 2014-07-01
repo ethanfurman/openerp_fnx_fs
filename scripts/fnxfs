@@ -19,7 +19,7 @@ fs_root = Path('/var/openerp/fnxfs')
 archive_root = Path('/var/openerp/fnxfs_archive')
 OE = PropertyDict()
 
-exec('/etc/openerp/credentials')
+execfile('/etc/openerp/credentials')
 
 
 @Command(

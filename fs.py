@@ -20,11 +20,16 @@ _logger = logging.getLogger(__name__)
 
 CONFIG_ERROR = "Configuration not set; check Settings --> Configuration --> FnxFS --> %s."
 
-fs_root = Path('/var/openerp/fnx_fs/')
-archive_root = Path('/var/openerp/fnx_fs_archive/')
-permissions_file = Path('/var/openerp/fnx_fs.permissions')
+fs_root = Path('/var/openerp/fnxfs/')
+archive_root = Path('/var/openerp/fnxfs_archive/')
+permissions_file = Path('/var/openerp/fnxfs.permissions')
 
-execfile('/etc/openerp/fnx_fs')
+execfile('/etc/openerp/fnxfs')
+
+PERMISSIONS_TYPE = (
+    ('inherit', 'Inherited from Folder'),
+    ('custom', 'Custom settings for this File'),
+    )
 
 READONLY_TYPE = (
     ('all', 'All FnxFS Users'),
@@ -42,23 +47,9 @@ PERIOD_TYPE = (
     ('weekly', 'Weekly'),
     ('monthly', 'Monthly'),
     )
-#
-#class fnx_fs_schedule(osv.Model):
-#    '''
-#    schedule of files to automatically publish
-#    '''
-#    _name = 'fnx.fs.schedule'
-#    _description = 'file update schedule'
-#
-#    _columns = {
-#        file_id = fields.one2many(
-#            'fnx.fs.files',
-#            'schedule_id',
-#            'File',
-#            ),
 
 
-class fnx_fs_folders(osv.Model):
+class fnx_fs_folder(osv.Model):
     '''
     virtual folders for shared files to appear in
     '''
@@ -72,7 +63,7 @@ class fnx_fs_folders(osv.Model):
             res[rec.id] = self._get_path(cr, uid, rec.parent_id.id, rec.name, context=context) - fs_root
         return res
 
-    _name = 'fnx.fs.folders'
+    _name = 'fnx.fs.folder'
     _description = 'where shared files show up'
     _rec_name = 'path'
     _order = 'path asc'
@@ -87,24 +78,47 @@ class fnx_fs_folders(osv.Model):
             ),
         'description': fields.text('Description'),
         'file_ids': fields.one2many(
-            'fnx.fs.files',
+            'fnx.fs.file',
             'folder_id',
             'Files shared via this folder',
             ),
         'parent_id': fields.many2one(
-            'fnx.fs.folders',
+            'fnx.fs.folder',
             'Parent Folder',
             ondelete='restrict',
             ),
         'child_ids': fields.one2many(
-            'fnx.fs.folders',
+            'fnx.fs.folder',
             'parent_id',
             'Sub-Folders',
             ),
+        'readonly_type': fields.selection(
+            READONLY_TYPE,
+            'Read-Only Users',
+            ),
+        'readonly_ids': fields.many2many(
+            'res.users',
+            'fnx_folder_readonly_perm_rel',
+            'fid',
+            'uid',
+            'Read Only Access',
+            domain="[('groups_id.category_id.name','=','FnxFS')]",
+            ),
+        'readwrite_ids': fields.many2many(
+            'res.users',
+            'fnx_folder_readwrite_perm_rel',
+            'fid',
+            'uid',
+            'Read/Write Access',
+            domain="[('groups_id.category_id.name','=','FnxFS')]",
+            ),
         }
     _sql_constraints = [
-            ('folder_uniq', 'unique(name)', 'Folder already exists in system.'),
-            ]
+        ('folder_uniq', 'unique(name)', 'Folder already exists in system.'),
+        ]
+    _defaults = {
+        'readonly_type': lambda s, c, u, ctx=None: 'all',
+        }
 
     def _get_path(self, cr, uid, parent_id, name, id=None, context=None):
         records = self.browse(cr, uid, self.search(cr, uid, [], context=context), context=context)
@@ -132,7 +146,7 @@ class fnx_fs_folders(osv.Model):
         if 'description' in values and values['description']:
             with open(folder/'README', 'w') as readme:
                 readme.write(values['description'])
-        return super(fnx_fs_folders, self).create(cr, uid, values, context=context)
+        return super(fnx_fs_folder, self).create(cr, uid, values, context=context)
 
     def write(self, cr, uid, ids, values, context=None):
         if ids:
@@ -156,7 +170,7 @@ class fnx_fs_folders(osv.Model):
                 if 'description' in values:
                     with open(new_path/'README', 'w') as readme:
                         readme.write(values['description'])
-        return super(fnx_fs_folders, self).write(cr, uid, ids, values, context=context)
+        return super(fnx_fs_folder, self).write(cr, uid, ids, values, context=context)
 
     def unlink(self, cr, uid, ids, context=None):
         if isinstance(ids, (int, long)):
@@ -165,17 +179,15 @@ class fnx_fs_folders(osv.Model):
         records = self.browse(cr, uid, ids, context=context)
         for rec in records:
             path = self._get_path(cr, uid, rec.parent_id.id, rec.name, context=context)
-        res = super(fnx_fs_folders, self).unlink(cr, uid, ids, context=context)
+        res = super(fnx_fs_folder, self).unlink(cr, uid, ids, context=context)
         if res:
             for fp in to_be_deleted:
                 if fp.exists():
                     fp.rmtree()
         return res
 
-fnx_fs_folders()
 
-
-class fnx_fs_files(osv.Model):
+class fnx_fs_file(osv.Model):
     '''
     Tracks files and restricts access.
     '''
@@ -250,7 +262,7 @@ class fnx_fs_files(osv.Model):
             owner_id=None, file_path=None, ip=None, shared_as=None, folder_id=None,
             context=None):
         with self.copy_lock:
-            fnx_fs_folders = self.pool.get('fnx.fs.folders')
+            fnx_fs_folder = self.pool.get('fnx.fs.folder')
             if folder_id is None:
                 folder_id = values['folder_id']
             if shared_as is None:
@@ -262,7 +274,7 @@ class fnx_fs_files(osv.Model):
             if file_path is None:
                 file_name = values['file_name']
             login = get_user_login(self, cr, uid, owner_id)
-            folder = fnx_fs_folders.browse(cr, uid, folder_id, context=context).path
+            folder = fnx_fs_folder.browse(cr, uid, folder_id, context=context).path
             new_env = os.environ.copy()
             new_env['SSHPASS'] = client_pass
             if file_path is None:
@@ -280,10 +292,10 @@ class fnx_fs_files(osv.Model):
                             'Unshareable File',
                             'Only files in your home directory or its subfolders can be shared.',
                             )
-                elif len(elements) >= 3 and elements[3] == 'fnx_fs':
+                elif len(elements) >= 3 and elements[3] == 'FnxFS':
                     raise ERPError(
                             'Unshareable File',
-                            'Cannot share files directely from the fnx_fs shared directory.',
+                            'Cannot share files directely from the FnxFS shared directory.',
                             )
                 file_path = values['full_name'] = path/file_name
             copy_cmd = [
@@ -300,6 +312,26 @@ class fnx_fs_files(osv.Model):
                 output = check_output(archive_cmd, env=new_env)
             except Exception, exc:
                 raise ERPError('Error','Unable to archive file:\n\n%s' % (exc, ))
+
+    def change_permissions(self, cr, uid, ids, perm_type, folder_id, called_from):
+        print
+        print 'on change ids: ', ids
+        print 'perm type: ', perm_type
+        print 'folder id: ', folder_id
+        print 'called from: ', called_from
+        if called_from == 'folder' and perm_type == 'custom':
+            return False
+        res = {}
+        if not folder_id:
+            return res
+        # assuming only one id
+        folder = self.pool.get('fnx.fs.folder').browse(cr, uid, folder_id)
+        value = res['value'] = {}
+        value['readonly_type'] = folder.readonly_type
+        value['readonly_ids'] = [rec.id for rec in folder.readonly_ids]
+        value['readwrite_ids'] = [rec.id for rec in folder.readwrite_ids]
+        print 'res: ', res, '\n'
+        return res
 
     def _remote_locate(self, cr, user, file_name, context=None):
         if context is None:
@@ -322,7 +354,7 @@ class fnx_fs_files(osv.Model):
             raise Exception(result)
         return Path(result.strip())
 
-    def _write_permissions(self, cr, uid, context=None):
+    def _write_permissions(self, cr, uid, append_id=None, context=None):
         # write a file in the form of:
         #
         # ethan:read:/Q&A/cashews.ods
@@ -334,7 +366,12 @@ class fnx_fs_files(osv.Model):
         # all:read:/IT/Printers/FAQ.pdf
         # 
         with self.permissions_lock:
-            files = self.browse(cr, uid, self.search(cr, uid, [],))
+            ids = []
+            mode = 'w'
+            if append_id is not None:
+                ids.append(append_id)
+                mode = 'a'
+            files = self.browse(cr, uid, self.search(cr, uid, ids,))
             lines = []
             for file in files:
                 folder = file.folder_id.path
@@ -352,10 +389,10 @@ class fnx_fs_files(osv.Model):
                     for user in file.readonly_ids:
                         if user.id not in read_write:
                             lines.append('%s:read:%s' % (user.login, path))
-            with open(permissions_file, 'w') as data:
+            with open(permissions_file, mode) as data:
                 data.write('\n'.join(lines) + '\n')
 
-    _name = 'fnx.fs.files'
+    _name = 'fnx.fs.file'
     _description = 'tracked files'
     _rec_name = 'shared_as'
     _columns = {
@@ -364,13 +401,18 @@ class fnx_fs_files(osv.Model):
             'Owner',
             ondelete='set null',
             ),
+        'perm_type': fields.selection(
+            PERMISSIONS_TYPE,
+            'Permissions Type',
+            required=True,
+            ),
         'readonly_type': fields.selection(
             READONLY_TYPE,
             'Read-Only Users',
             ),
         'readonly_ids': fields.many2many(
             'res.users',
-            'fnx_readonly_perm_rel',
+            'fnx_file_readonly_perm_rel',
             'fid',
             'uid',
             'Read Only Access',
@@ -378,14 +420,14 @@ class fnx_fs_files(osv.Model):
             ),
         'readwrite_ids': fields.many2many(
             'res.users',
-            'fnx_readwrite_perm_rel',
+            'fnx_file_readwrite_perm_rel',
             'fid',
             'uid',
             'Read/Write Access',
             domain="[('groups_id.category_id.name','=','FnxFS')]",
             ),
         'folder_id': fields.many2one(
-            'fnx.fs.folders',
+            'fnx.fs.folder',
             'Folder',
             help='Folder to present document in.',
             required=True,
@@ -406,7 +448,7 @@ class fnx_fs_files(osv.Model):
             size=64,
             ),
         # other miscellanea
-        'entire_folder': fields.boolean('All files in this folder?'),
+        # 'entire_folder': fields.boolean('All files in this folder?'),
         'indexed_text': fields.text('Indexed content (TBI)'),
         'notes': fields.text('Notes'),
         'schedule_period': fields.selection(PERIOD_TYPE, 'Frequency'),
@@ -417,7 +459,7 @@ class fnx_fs_files(osv.Model):
             type='datetime',
             string='Scheduled Date/Time',
             store={
-                'fnx.fs.files': (_calc_scheduled_at, ['schedule_date', 'schedule_time'], 10),
+                'fnx.fs.file': (_calc_scheduled_at, ['schedule_date', 'schedule_time'], 10),
                 },
             ),
         }
@@ -428,6 +470,7 @@ class fnx_fs_files(osv.Model):
             ]
     _defaults = {
         'user_id': lambda s, c, u, ctx={}: u,
+        'perm_type': lambda s, c, u, ctx={}: 'inherit',
         'readwrite_ids': lambda s, c, u, ctx={}: [u],
         'readonly_type': lambda s, c, u, ctx={}: 'all',
         'file_type': lambda s, c, u, ctx={}: 'manual',
@@ -446,8 +489,8 @@ class fnx_fs_files(osv.Model):
             if shared_as.ext != '.' and shared_as.ext != source_file.ext:
                 values['shared_as'] = shared_as + source_file.ext
             self._get_remote_file(cr, uid, values, context=context)
-        new_id = super(fnx_fs_files, self).create(cr, uid, values, context=context)
-        self._write_permissions(cr, uid, context=context)
+        new_id = super(fnx_fs_file, self).create(cr, uid, values, context=context)
+        self._write_permissions(cr, uid, append_id=new_id, context=context)
         current = self.browse(cr, uid, new_id)
         if values['file_type'] == 'normal':
             open(fs_root/current.folder_id.path/current.shared_as, 'w').close()
@@ -463,9 +506,9 @@ class fnx_fs_files(osv.Model):
         for rec in records:
             full_name = fs_root / rec.folder_id.name / rec.shared_as
             to_be_deleted.append(full_name)
-        res = super(fnx_fs_files, self).unlink(cr, uid, ids, context=context)
+        res = super(fnx_fs_file, self).unlink(cr, uid, ids, context=context)
         self._write_permissions(cr, uid, context=context)
-        if res:
+        if res and not context.get('keep_files', False):
             for fn in to_be_deleted:
                 if fn.exists():
                     fn.unlink()
@@ -474,7 +517,7 @@ class fnx_fs_files(osv.Model):
     def write(self, cr, uid, ids, values, context=None):
         if isinstance(ids, (int, long)):
             ids = [ids]
-        fnx_fs_folders = self.pool.get('fnx.fs.folders')
+        fnx_fs_folder = self.pool.get('fnx.fs.folder')
         records = self.browse(cr, uid, ids, context=context)
         for rec in records:
             source_file = Path(values.get('file_name', rec.file_name or ''))
@@ -487,7 +530,7 @@ class fnx_fs_files(osv.Model):
                 values['shared_as'] = shared_as
             if 'shared_as' in values or 'folder_id' in values:
                 if 'folder_id' in values:
-                    folder_rec = fnx_fs_folders.browse(cr, uid, folder_id, context=context)
+                    folder_rec = fnx_fs_folder.browse(cr, uid, folder_id, context=context)
                     folder = folder_rec.path
                 else:
                     folder = rec.folder_id.path
@@ -507,8 +550,6 @@ class fnx_fs_files(osv.Model):
                 owner_id = rec.user_id.id
             if 'file_name' in values:
                 self._get_remote_file(cr, uid, values, owner_id=owner_id, folder_id=folder_id, shared_as=shared_as, context=context)
-        success = super(fnx_fs_files, self).write(cr, uid, ids, values, context=context)
+        success = super(fnx_fs_file, self).write(cr, uid, ids, values, context=context)
         self._write_permissions(cr, uid, context=context)
         return True
-
-fnx_fs_files()

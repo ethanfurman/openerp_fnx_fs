@@ -61,7 +61,7 @@
             <field name="interval_type">minutes</field>
             <field name="numbercall">-1</field>
             <field name="doall" eval="False"/>
-            <field name="model" eval="'fnx.fs.files'"/>
+            <field name="model" eval="'fnx.fs.file'"/>
             <field name="function" eval="'fnx_fs_scheduled_publish'"/>
             <field name="args" eval="'()'"/>
             <field name="nextcall" eval="'2014-04-23 00:00:00'"/>

@@ -8,13 +8,48 @@ from dbf import DateTime
 from pandaemonium import PidLockFile
 from path import Path
 from scription import Command, REQUIRED, FLAG, OPTION, Run
+from VSS.time_machine import PropertyDict
 import errno
+import openerplib
 import sys
 import time
 
 
-fs_root = Path('/var/openerp/fnx_fs')
-archive_root = Path('/var/openerp/fnx_fs_archive')
+fs_root = Path('/var/openerp/fnxfs')
+archive_root = Path('/var/openerp/fnxfs_archive')
+OE = PropertyDict()
+
+exec('/etc/openerp/credentials')
+
+
+@Command(
+        src=('file to archive', REQUIRED, 'f', Path),
+        )
+def archive(src):
+    """
+    copy existing FnxFS file into the archive
+    """
+    if not src.exists():
+        raise SystemExit('source file does not exist')
+    if archive_needed(src):
+        archive_dst = archive_root / (src - fs_root)
+        if not archive_dst.exists():
+            archive_dst.mkdirs()
+        with PidLockFile(archive_dst/'locked.pid'):
+            archive_dst = next_archive_name(archive_dst)
+            src.copy(archive_dst)
+
+
+@Command(
+        )
+def clean_slate():
+    """
+    Removes all files entries from OpenERP, leaves folders in place but removes permissions.
+    Does not touch files on disk.
+    """
+    connect_oe(host, db, user, pw)
+    file_ids = OE.fs_file.search([(1,'=',1)])
+    OE.fs_file.unlink(file_ids, context={'keep_files':True})
 
 
 @Command(
@@ -41,25 +76,25 @@ def cp(
             archive_dst = next_archive_name(archive_dst)
             src.copy(archive_dst)
 
-
 @Command(
-        src=('file to archive', REQUIRED, 'f', Path),
         )
-def archive(src):
+def user_shares():
     """
-    copy existing FnxFS file into the archive
+    Add users, files, and folders found in UserShares.
     """
-    if not src.exists():
-        raise SystemExit('source file does not exist')
-    if archive_needed(src):
-        archive_dst = archive_root / (src - fs_root)
-        if not archive_dst.exists():
-            archive_dst.mkdirs()
-        with PidLockFile(archive_dst/'locked.pid'):
-            archive_dst = next_archive_name(archive_dst)
-            src.copy(archive_dst)
+    folder_names = {
+            'qcmanagement': 'Quality Control',
+            'qc_scratch':   'Quality Control/Scratch',
+            'r-and-d':      'Research & Development',
+            'marketing':    'Marketing',
+            'DropEmployeeHeadshotsHere':    'Human Resources/Headshots',
+            'hr':           'Human Resources',
+            '121Shared':    'To Be Renamed',
+            }
 
-    
+
+
+
 def next_archive_name(archive_path):
     """
     archive_path is the folder holding the archive copies
@@ -99,6 +134,11 @@ def archive_needed(src):
             raise
         return True
     return src_meta != arc_meta
+
+def connect_oe(hostname, database, user, password):
+    OE.conn = conn = openerplib.get_connection(hostname=hostname, database=database, login=user, password=password)
+    OE.fs_file = conn.get_model('fnx.fs.file')
+    OE.fs_folder = conn.get_model('fnx.fs.folder')
 
 
 if __name__ == "__main__":

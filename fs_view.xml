@@ -6,7 +6,7 @@
 
         <record model="ir.ui.view" id="fnx_fs_folders_tree">
             <field name="name">Folders</field>
-            <field name="model">fnx.fs.folders</field>
+            <field name="model">fnx.fs.folder</field>
             <field name="arch" type="xml">
                 <tree string="Folders" version="7.0">
                     <field name="path"/>
@@ -17,7 +17,7 @@
 
         <record model="ir.ui.view" id="fnx_fs_folders_form">
             <field name="name">Folders</field>
-            <field name="model">fnx.fs.folders</field>
+            <field name="model">fnx.fs.folder</field>
             <field name="arch" type="xml">
                 <form string="Folders" version="7.0">
                     <group>
@@ -28,6 +28,26 @@
                     </group>
                     <group>
                         <field name="child_ids"/>
+                    </group>
+                    <separator string="Default File Settings"/>
+                    <group colspan="2">
+                        <group>
+                            <field name="readonly_type"/>
+                            <field name="readonly_ids" nolabel="1" attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2">
+                                <tree>
+                                    <field name="name" string="Read Only Users"/>
+                                </tree>
+                            </field>
+                        </group>
+                        <group>
+                            <separator attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2"/>
+                            <separator attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2"/>
+                            <field name="readwrite_ids" nolabel="1" colspan="2">
+                                <tree>
+                                    <field name="name" string="Read/Write Users"/>
+                                </tree>
+                            </field>
+                        </group>
                     </group>
                     <notebook colspan="4">
                         <page string="Files">
@@ -45,7 +65,7 @@
 
         <record model="ir.ui.view" id="fnx_fs_files_list">
             <field name="name">Files</field>
-            <field name="model">fnx.fs.files</field>
+            <field name="model">fnx.fs.file</field>
             <field name="arch" type="xml">
                 <tree string="Files" version="7.0">
                     <field name="folder_id"/>
@@ -58,7 +78,7 @@
 
         <record model="ir.ui.view" id="fnx_fs_files_form">
             <field name="name">Files</field>
-            <field name="model">fnx.fs.files</field>
+            <field name="model">fnx.fs.file</field>
             <field name="arch" type="xml">
                 <form string="File System" version="7.0">
                     <header>
@@ -69,7 +89,7 @@
                             <group>
                                 <field name="user_id" readwrite="groups('fnx_fs.group_fnx_fs_manager')" widget="selection" options="{'create':False, 'create_edit':False, 'limit':15}"/>
                                 <field name="file_type"/>
-                                <field name="folder_id" widget="selection"/>
+                                <field name="folder_id" widget="selection" on_change="change_permissions(perm_type, folder_id, 'folder')"/>
                                 <field name="shared_as" attrs="{'required':[('file_type','=','normal')]}"/>
                             </group>
                             <group>
@@ -79,9 +99,9 @@
                             </group>
                             <group colspan="4">
                                 <field name="file_name" attrs="{'invisible':[('file_type','=','normal')]}"/>
-                                <field name="entire_folder" attrs="{'invisible':[('file_type','=','normal')]}"/>
                                 <field name="ip_addr" readonly="True" class="oe_inline" attrs="{'invisible':[('file_type','=','normal')]}"/>
                                 <field name="full_name" readonly="True" class="oe_inline" attrs="{'invisible':[('file_type','=','normal')]}"/>
+                                <field name="perm_type" on_change="change_permissions(perm_type, folder_id, 'perm')"/>
                             </group>
                         </group>
                     <notebook colspan="4">
@@ -122,8 +142,8 @@
         </record>
 
         <record id="search_fnx_fs_filter" model="ir.ui.view">
-            <field name="name">fnx.fs.files.select</field>
-            <field name="model">fnx.fs.files</field>
+            <field name="name">fnx.fs.file.select</field>
+            <field name="model">fnx.fs.file</field>
             <field name="arch" type="xml">
                 <search string="Search Files">
                     <!--
@@ -145,7 +165,7 @@
 
         <record model="ir.actions.act_window" id="action_fnx_fs_folders">
             <field name="name">Folders</field>
-            <field name="res_model">fnx.fs.folders</field>
+            <field name="res_model">fnx.fs.folder</field>
             <field name="view_type">form</field>
             <field name="view_id" ref="fnx_fs_folders_tree"/>
             <field name="view_mode">tree,form</field>
@@ -154,7 +174,7 @@
 
         <record model="ir.actions.act_window" id="action_fnx_fs_files">
             <field name="name">Files</field>
-            <field name="res_model">fnx.fs.files</field>
+            <field name="res_model">fnx.fs.file</field>
             <field name="view_type">form</field>
             <field name="view_id" ref="fnx_fs_files_list"/>
             <field name="view_mode">list,form</field>

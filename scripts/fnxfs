@@ -1,4 +1,4 @@
-#!/usr/local/bin/python
+#!/usr/local/bin/suid-python
 
 from __future__ import print_function
 
@@ -66,10 +66,19 @@ def cp(
         force=False
         ):
     """
-    copy file into FnxFS structure, also archiving it
+    copy file/folder into FnxFS structure, also archiving it
     """
-    if not dst.exists() and not force:
-        raise SystemExit('destination file does not exist (use --force to copy anyway)')
+    if not src.isdir():
+        if not dst.exists() and not force:
+            raise SystemExit('destination file does not exist (use --force to copy anyway)')
+        _cp(src, dst, timeout)
+    else:
+        for dirpath, dirnames, filenames in src.walk():
+            for fn in filenames:
+                _cp(dirpath/fn, dst/dirpath/fn, timeout)
+
+
+def _cp(src, dst, timeout):
     archive_dst = archive_root / (dst - fs_root)
     if not archive_dst.exists():
         archive_dst.mkdirs()

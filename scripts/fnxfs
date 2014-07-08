@@ -5,6 +5,7 @@ from __future__ import print_function
 import pandaemonium
 
 from dbf import DateTime
+from getpass import getpass
 from pandaemonium import PidLockFile
 from path import Path
 from scription import Command, REQUIRED, FLAG, OPTION, Run
@@ -56,17 +57,19 @@ def clean_slate():
         src=('file to copy', REQUIRED, 's', Path),
         dst=('where to put it (and possibly new name', REQUIRED, 'd', Path),
         timeout=('how long to wait for lock', OPTION, 't', int),
+        force=('make copy even if no record of file exists in OpenERP', FLAG),
         )
 def cp(
         src,
         dst,
         timeout=10,
+        force=False
         ):
     """
     copy file into FnxFS structure, also archiving it
     """
-    if not dst.exists():
-        raise SystemExit('destination file does not exist')
+    if not dst.exists() and not force:
+        raise SystemExit('destination file does not exist (use --force to copy anyway)')
     archive_dst = archive_root / (dst - fs_root)
     if not archive_dst.exists():
         archive_dst.mkdirs()
@@ -77,21 +80,59 @@ def cp(
             src.copy(archive_dst)
 
 @Command(
+        folder=('Specific folder to copy (default is all)', OPTION),
         )
-def user_shares():
+def copy_usershares(folder):
     """
-    Add users, files, and folders found in UserShares.
+    Add files and folders found in UserShares.
     """
+    #
+    # For each share we care about:
+    # 1. mount share in /mnt/11-145
+    # 2. for each folder there:
+    #    a) create an entry in FnxFS/Folders
+    #    b) copy permissions from parent folder
+    #    c) create folder in /var/openerp/fnxfs/[parent dirs...]
+    # 3. for each file there:
+    #    d) create on entry in FnxFs/Files
+    #    e) use permissions from containing folder
+    #    f) touch file in parent directory
+    #    g) use 'cp' command to copy and archive
+    # 4. unmount share
+    #
+    # Notes:
+    #    ignore symbolic links
+    #    ignore directories with '\' in the name
+    #    ignore files named 'touch'
+    #    ignore files named backup*.log
+    #    ignore hidden files
+    #    ignore Thumbs.db (any case)
+    #    strip spaces from names (e.g. ' CoAFormat013112')
+    #    convert %20 to space
+    #    convert files starting with .75 to 0.75
+    #    drop characters outside ASCII range
+    #
     folder_names = {
             'qcmanagement': 'Quality Control',
             'qc_scratch':   'Quality Control/Scratch',
             'r-and-d':      'Research & Development',
             'marketing':    'Marketing',
-            'DropEmployeeHeadshotsHere':    'Human Resources/Headshots',
+            #'DropEmployeeHeadshotsHere':    'Human Resources/Headshots',
             'hr':           'Human Resources',
-            '121Shared':    'To Be Renamed',
+            #'121Shared':    'To Be Renamed',
             }
-
+    password = getpass('password for remote mounts')
+    server_template = '//192.168.11.145/%s'
+    mount_template = Path('/var/openerp/11-145-%s')
+    for src, dst in folder_names.items():
+        server = server_template % src
+        mount = mount_template % src
+        command = ['mount', '-t cifs', '-o ro', server, mount]
+        if not mount.exists():
+            mount.mkdir()
+        result = Execute(command, password=password)
+    args, bufsize=-1, cwd=None, password=None
+    
 
 
 

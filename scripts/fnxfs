@@ -75,13 +75,30 @@ def cp(
     else:
         for dirpath, dirnames, filenames in src.walk():
             for fn in filenames:
-                _cp(dirpath/fn, dst/dirpath/fn, timeout)
+                fn_lower = fn.lower()
+                if (
+                        '\\' in fn or
+                        'touch' in fn_lower or
+                        fn_lower.startswith('backup') and fn_lower.endswith('.log') or
+                        fn_lower == 'thumbs.db'
+                    ):
+                    continue
+                new_fn = fn
+                if new_fn.startswith('.') and new_fn[1:2] in '0123456789':
+                    new_fn = '0' + new_fn
+                else:
+                    continue
+                new_fn = new_fn.replace('%20', ' ')
+                new_fn = ''.join([ch for ch in new_fn if ord(ch) < 128])
+                _cp(dirpath/fn, dst/dirpath/new_fn, timeout)
 
 
 def _cp(src, dst, timeout):
     archive_dst = archive_root / (dst - fs_root)
     if not archive_dst.exists():
         archive_dst.mkdirs()
+    if not dst.exists():
+        dst.mkdirs()
     with PidLockFile(archive_dst/'locked.pid', time_out=timeout):
         src.copy(dst)
         if archive_needed(dst):
@@ -140,7 +157,6 @@ def copy_usershares(folder):
         if not mount.exists():
             mount.mkdir()
         result = Execute(command, password=password)
-    args, bufsize=-1, cwd=None, password=None
     
 
 

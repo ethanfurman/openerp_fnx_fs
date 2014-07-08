@@ -74,6 +74,7 @@ def cp(
         _cp(src, dst, timeout)
     else:
         for dirpath, dirnames, filenames in src.walk():
+            dirnames = [d for d in dirnames if stat.S_ISLNK(d.stat())]
             for fn in filenames:
                 fn_lower = fn.lower()
                 if (

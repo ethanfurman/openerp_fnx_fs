@@ -115,8 +115,8 @@
                         <page string="Shared To">
                             <group colspan="2">
                                 <group>
-                                    <field name="readonly_type"/>
-                                    <field name="readonly_ids" nolabel="1" attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2">
+                                    <field name="readonly_type" attrs="{'readonly':[('perm_type','=','inherit')]}"/>
+                                    <field name="readonly_ids"  attrs="{'readonly':[('perm_type','=','inherit')]}"nolabel="1" attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2">
                                         <tree>
                                             <field name="name" string="Read Only Users"/>
                                         </tree>
@@ -125,7 +125,7 @@
                                 <group>
                                     <separator attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2"/>
                                     <separator attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2"/>
-                                    <field name="readwrite_ids" nolabel="1" colspan="2">
+                                    <field name="readwrite_ids" nolabel="1" colspan="2" attrs="{'readonly':[('perm_type','=','inherit')]}">
                                         <tree>
                                             <field name="name" string="Read/Write Users"/>
                                         </tree>

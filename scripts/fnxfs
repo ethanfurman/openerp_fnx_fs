@@ -84,7 +84,7 @@ def cp(
                     ):
                     continue
                 new_fn = fn
-                if new_fn.startswith('.') and new_fn[1:2] in '0123456789':
+                if new_fn.startswith('.') and new_fn[1] in '0123456789':
                     new_fn = '0' + new_fn
                 else:
                     continue

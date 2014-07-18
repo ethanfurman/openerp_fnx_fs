@@ -21,10 +21,16 @@
             <field name="arch" type="xml">
                 <form string="Folders" version="7.0">
                     <group>
-                        <field name="name"/>
-                        <field name="path"/>
-                        <field name="description"/>
-                        <field name="parent_id"/>
+                        <group>
+                            <field name="name"/>
+                            <field name="path"/>
+                            <field name="description"/>
+                            <field name="parent_id"/>
+                        </group>
+                        <group>
+                            <field name="folder_type"/>
+                            <field name="mount_from" attrs="{'invisible':[('folder_type','=','virtual')], 'required':[('folder_type','=','reflective')]}"/>
+                            <field name="mount_options" attrs="{'invisible':[('folder_type','=','virtual')]}"/>
                     </group>
                     <group>
                         <field name="child_ids"/>

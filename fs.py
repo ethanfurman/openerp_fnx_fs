@@ -23,6 +23,7 @@ CONFIG_ERROR = "Configuration not set; check Settings --> Configuration --> FnxF
 fs_root = Path('/var/openerp/fnxfs/')
 archive_root = Path('/var/openerp/fnxfs_archive/')
 permissions_file = Path('/var/openerp/fnxfs.permissions')
+mount_file = Path('/var/openerp/fnxfs.mount')
 
 execfile('/etc/openerp/fnxfs')
 
@@ -54,6 +55,20 @@ PERIOD_TYPE = (
     )
 
 permissions_lock = threading.Lock()
+mount_lock = threading.Lock()
+
+def write_mount(oe, cr):
+    fnxfs_folder = oe.pool.get('fnx.fs.folder')
+    with mount_lock():
+        lines = []
+        for folder in fnxfs_folder.browse(cr, SUPERUSER, fnxfs_folder.search(cr, SUPERUSER)):
+            if folder.folder_type == 'reflective':
+                mount_point = fs_root/folder.path
+                if not mount_point.exists():
+                    mount_point.mkdirs()
+                lines.append('%s\t%s\t%s\n' % (mount_point, folder.mount_options, folder.mount_from)
+        with open(mount_file, 'w') as data:
+            data.write('\n'.join(lines) + '\n')
 
 def write_permissions(oe, cr):
     # write a file in the form of:

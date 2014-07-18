@@ -23,7 +23,7 @@ CONFIG_ERROR = "Configuration not set; check Settings --> Configuration --> FnxF
 fs_root = Path('/var/openerp/fnxfs/')
 archive_root = Path('/var/openerp/fnxfs_archive/')
 permissions_file = Path('/var/openerp/fnxfs.permissions')
-mount_file = Path('/var/openerp/fnxfs.mount')
+mount_file = Path('/etc/openerp/fnxfs.mount')
 
 execfile('/etc/openerp/fnxfs')
 
@@ -59,14 +59,14 @@ mount_lock = threading.Lock()
 
 def write_mount(oe, cr):
     fnxfs_folder = oe.pool.get('fnx.fs.folder')
-    with mount_lock():
+    with mount_lock:
         lines = []
-        for folder in fnxfs_folder.browse(cr, SUPERUSER, fnxfs_folder.search(cr, SUPERUSER)):
+        for folder in fnxfs_folder.browse(cr, SUPERUSER, fnxfs_folder.search(cr, SUPERUSER, [])):
             if folder.folder_type == 'reflective':
                 mount_point = fs_root/folder.path
                 if not mount_point.exists():
                     mount_point.mkdirs()
-                lines.append('%s\t%s\t%s\n' % (mount_point, folder.mount_options, folder.mount_from)
+                lines.append('%s\t%s\t%s\n' % (mount_point, folder.mount_options, folder.mount_from))
         with open(mount_file, 'w') as data:
             data.write('\n'.join(lines) + '\n')
 
@@ -91,15 +91,13 @@ def write_permissions(oe, cr):
         #if append_id is not None:
         #    ids.append(append_id)
         #    mode = 'a'
-        folders = fnxfs_folder.browse(cr, SUPERUSER, fnxfs_folder.browse(cr, SUPERUSER))
-        print 'write_permissions: %d folders' % len(folders)
-        files = fnxfs_file.browse(cr, SUPERUSER, fnxfs_file.search(cr, SUPERUER))
-        print 'write_permissions: %d files' % len(files)
+        folders = fnxfs_folder.browse(cr, SUPERUSER, fnxfs_folder.search(cr, SUPERUSER, []))
+        files = fnxfs_file.browse(cr, SUPERUSER, fnxfs_file.search(cr, SUPERUSER, []))
         lines = []
         root = Path('/')
         for folder in folders:
             read_write = set()
-            if folder.readonly_type == selected and not folder.readonly_ids and not folder.readwrite_ids:
+            if folder.readonly_type == 'selected' and not folder.readonly_ids and not folder.readwrite_ids:
                 # no global settings for this folder
                 continue
             for user in (folder.readwrite_ids or []):
@@ -199,7 +197,7 @@ class fnx_fs_folder(osv.Model):
         'folder_type': fields.selection(
             FOLDER_TYPE,
             'Folder Type',
-            )
+            ),
         'mount_from': fields.char('Mirrored from', size=256),
         'mount_options': fields.char('Mount options', size=64),
         }
@@ -208,7 +206,7 @@ class fnx_fs_folder(osv.Model):
         ]
     _defaults = {
         'readonly_type': lambda s, c, u, ctx=None: 'selected',
-        'folder_type': lambda s, c, u ctx=None: 'virtual',
+        'folder_type': lambda s, c, u, ctx=None: 'virtual',
         'mount_options': lambda s, c, u, ctx=None: 'cifs',
         }
 
@@ -266,10 +264,10 @@ class fnx_fs_folder(osv.Model):
                         new_path.mkdir()
                 if 'description' in values:
                     with open(new_path/'README', 'w') as readme:
-                        readme.write(values['description'])
+                        readme.write(values['description'] or '')
         if values.get('readonly_ids') or values.get('readwrite_ids'):
             write_permissions(self, cr)
-        if values.get('mount_from'):
+        if values.get('mount_from') or values.get('mount_options'):
             write_mount(self, cr)
         return super(fnx_fs_folder, self).write(cr, uid, ids, values, context=context)
 
@@ -386,7 +384,6 @@ class fnx_fs_file(osv.Model):
                 except Exception, exc:
                     raise ERPError("Error", "Unable to locate file.\n\n%s" % exc)
                 elements = path.elements
-                print elements
                 if len(elements) < 3 or elements[2] != user:
                     raise ERPError(
                             'Unshareable File',
@@ -607,6 +604,5 @@ class fnx_fs_file(osv.Model):
             if 'file_name' in values:
                 self._get_remote_file(cr, uid, values, owner_id=owner_id, folder_id=folder_id, shared_as=shared_as, context=context)
         success = super(fnx_fs_file, self).write(cr, uid, ids, values, context=context)
-        if values.get(
         write_permissions(self, cr)
         return success

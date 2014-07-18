@@ -31,6 +31,7 @@
                             <field name="folder_type"/>
                             <field name="mount_from" attrs="{'invisible':[('folder_type','=','virtual')], 'required':[('folder_type','=','reflective')]}"/>
                             <field name="mount_options" attrs="{'invisible':[('folder_type','=','virtual')]}"/>
+                        </group>
                     </group>
                     <group>
                         <field name="child_ids"/>

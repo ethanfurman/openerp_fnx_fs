@@ -12,6 +12,7 @@ from scription import Command, REQUIRED, FLAG, OPTION, Run
 from VSS.time_machine import PropertyDict
 import errno
 import openerplib
+import pwd
 import sys
 import time
 
@@ -19,6 +20,7 @@ import time
 fs_root = Path('/var/openerp/fnxfs')
 archive_root = Path('/var/openerp/fnxfs_archive')
 OE = PropertyDict()
+openerp_ids = tuple(pwd.getpwnam('openerp')[2:4])
 
 execfile('/etc/openerp/credentials')
 
@@ -35,10 +37,11 @@ def archive(src):
     if archive_needed(src):
         archive_dst = archive_root / (src - fs_root)
         if not archive_dst.exists():
-            archive_dst.mkdirs()
+            archive_dst.mkdirs(owner=openerp_ids)
         with PidLockFile(archive_dst/'locked.pid'):
             archive_dst = next_archive_name(archive_dst)
             src.copy(archive_dst)
+            src.chown(*openerp_ids)
 
 
 @Command(
@@ -98,14 +101,16 @@ def cp(
 def _cp(src, dst, timeout):
     archive_dst = archive_root / (dst - fs_root)
     if not archive_dst.exists():
-        archive_dst.mkdirs()
+        archive_dst.mkdirs(owner=openerp_ids)
     if not dst.exists():
-        dst.mkdirs()
+        dst.mkdirs(owner=openerp_ids)
     with PidLockFile(archive_dst/'locked.pid', time_out=timeout):
         src.copy(dst)
+        dst.chown(*openerp_ids)
         if archive_needed(dst):
             archive_dst = next_archive_name(archive_dst)
             src.copy(archive_dst)
+            archive_dst.chown(*openerp_ids)
 
 @Command(
         folder=('Specific folder to copy (default is all)', OPTION),

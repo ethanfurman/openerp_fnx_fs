@@ -11,12 +11,15 @@ from tempfile import NamedTemporaryFile
 import errno
 import logging
 import os
+import pwd
 import re
 import shutil
 import socket
 import threading
 
 _logger = logging.getLogger(__name__)
+
+openerp_ids = tuple(pwd.getpwnam('openerp')[2:4])
 
 CONFIG_ERROR = "Configuration not set; check Settings --> Configuration --> FnxFS --> %s."
 
@@ -414,6 +417,7 @@ class fnx_fs_file(osv.Model):
                 output = check_output(copy_cmd, env=new_env)
             except CalledProcessError, exc:
                 raise ERPError('Error','Unable to retrieve file.\n\n%s\n\n%s' % (exc, exc.output))
+            (fs_root/folder/shared_as).chown(*openerp_ids)
             archive_cmd = ['/usr/local/bin/fnxfs', 'archive', fs_root/folder/shared_as]
             try:
                 output = check_output(archive_cmd, env=new_env)
@@ -441,7 +445,7 @@ class fnx_fs_file(osv.Model):
         if client is None:
             ERPError('Error','Unable to locate remote copy because client ip is missing')
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect((client, 8069))
+        sock.connect((client, 8068))
         sock.sendall('service:find_path\nuser:%s\nfile_name:%s\n' % (user, file_name))
         data = sock.recv(1024)
         sock.close()

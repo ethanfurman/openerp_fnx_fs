@@ -105,7 +105,7 @@
                                 <field name="schedule_time" attrs="{'invisible':[('file_type','!=','auto')], 'required':[('file_type','=','auto')]}" widget="float_time"/>
                             </group>
                             <group colspan="4">
-                                <field name="file_name" attrs="{'invisible':[('file_type','=','normal')]}"/>
+                                <field name="file_name" attrs="{'invisible':[('file_type','=','normal')], 'required':[('file_type','!=','normal')]}"/>
                                 <field name="ip_addr" readonly="True" class="oe_inline" attrs="{'invisible':[('file_type','=','normal')]}"/>
                                 <field name="full_name" readonly="True" class="oe_inline" attrs="{'invisible':[('file_type','=','normal')]}"/>
                                 <field name="perm_type" on_change="change_permissions(perm_type, folder_id, 'perm')"/>

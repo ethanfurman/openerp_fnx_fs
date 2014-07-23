@@ -199,19 +199,10 @@ def archive_needed(src):
     archive = archive_root / (src - fs_root)
     try:
         arc = sorted(archive.glob('/*'))[-1]
-    except OSError:
-        exc = sys.exc_info()[1]
-        if exc.errno != errno.ENOENT:
-            raise
+    except IndexError:
         return True
     src_meta = src.stat()[6:9]
-    try:
-        arc_meta = arc.stat()[6:9]
-    except OSError:
-        exc = sys.exc_info()[1]
-        if exc.errno != errno.ENOENT:
-            raise
-        return True
+    arc_meta = arc.stat()[6:9]
     return src_meta != arc_meta
 
 def connect_oe(hostname, database, user, password):

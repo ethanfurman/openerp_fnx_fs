@@ -116,7 +116,7 @@
                             <group colspan="2">
                                 <group>
                                     <field name="readonly_type" attrs="{'readonly':[('perm_type','=','inherit')]}"/>
-                                    <field name="readonly_ids"  attrs="{'readonly':[('perm_type','=','inherit')]}"nolabel="1" attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2">
+                                    <field name="readonly_ids"  attrs="{'readonly':[('perm_type','=','inherit')], 'invisible':[('readonly_type','=','all')]}" nolabel="1" colspan="2">
                                         <tree>
                                             <field name="name" string="Read Only Users"/>
                                         </tree>

@@ -301,9 +301,19 @@ class fnx_fs_file(osv.Model):
             ids = [ids]
         res_users = self.pool.get('res.users')
         records = self.browse(cr, uid, ids, context=context)
-        if uid != SUPERUSER and not any(uid == rw.id for rw in rec.readwrite_ids for rec in records):
-            raise ERPError('Error', 'You do not have write permission for this file.')
-        raise ERPError('Not Implemented', 'This feature is not yet implemented.')
+        if uid != SUPERUSER:
+            #if not any(uid == rw.id for rw in rec.readwrite_ids for rec in records):
+            for rec in records:
+                if uid in [rw.id for rw in rec.readwrite_ids]:
+                    break
+            else:
+                raise ERPError('Error', 'You do not have write permission for this file.')
+        self._get_remote_file(cr, uid, {},
+                owner_id=rec.user_id.id, file_path=rec.full_name, ip=rec.ip_addr,
+                shared_as=rec.shared_as, folder_id=rec.folder_id.id,
+                context=context)
+        return True
+        #raise ERPError('Not Implemented', 'This feature is not yet implemented.')
 
     def fnx_fs_publish_times(self, cr, uid, ids=None, context=None):
         if ids is None:

@@ -74,23 +74,24 @@ def cp(
         _cp(src, dst, timeout)
     else:
         for dirpath, dirnames, filenames in src.walk():
-            dirnames = [d for d in dirnames if stat.S_ISLNK(d.stat())]
             for fn in filenames:
-                fn_lower = fn.lower()
+                fn_lower = fn.filename.lower()
                 if (
-                        '\\' in fn or
+                        '\\' in fn_lower or
                         'touch' in fn_lower or
                         fn_lower.startswith('backup') and fn_lower.endswith('.log') or
                         fn_lower == 'thumbs.db'
                     ):
                     continue
-                new_fn = fn
-                if new_fn.startswith('.') and new_fn[1] in '0123456789':
-                    new_fn = '0' + new_fn
-                else:
-                    continue
+                new_fn = fn.filename
+                if new_fn.startswith('.'):
+                    if new_fn[1] in '0123456789':
+                        new_fn = '0' + new_fn
+                    else:
+                        continue
                 new_fn = new_fn.replace('%20', ' ')
                 new_fn = ''.join([ch for ch in new_fn if ord(ch) < 128])
+                new_fn = fn.path / new_fn
                 _cp(dirpath/fn, dst/dirpath/new_fn, timeout)
 
 
@@ -192,7 +193,7 @@ def archive_needed(src):
     # use st_size, st_atime, st_mtime
     archive = archive_root / (src - fs_root)
     try:
-        arc = sorted(archive.listdir())[-1]
+        arc = sorted(archive.glob('/*'))[-1]
     except OSError:
         exc = sys.exc_info()[1]
         if exc.errno != errno.ENOENT:

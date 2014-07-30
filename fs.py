@@ -268,11 +268,12 @@ class fnx_fs_folder(osv.Model):
                 if 'description' in values:
                     with open(new_path/'README', 'w') as readme:
                         readme.write(values['description'] or '')
-        if values.get('readonly_ids') or values.get('readwrite_ids'):
+        res = super(fnx_fs_folder, self).write(cr, uid, ids, values, context=context)
+        if values.get('readonly_type') is not None or values.get('readonly_ids') or values.get('readwrite_ids'):
             write_permissions(self, cr)
         if values.get('mount_from') or values.get('mount_options'):
             write_mount(self, cr)
-        return super(fnx_fs_folder, self).write(cr, uid, ids, values, context=context)
+        return res
 
     def unlink(self, cr, uid, ids, context=None):
         if isinstance(ids, (int, long)):
@@ -305,7 +306,6 @@ class fnx_fs_file(osv.Model):
         res_users = self.pool.get('res.users')
         records = self.browse(cr, uid, ids, context=context)
         if uid != SUPERUSER:
-            #if not any(uid == rw.id for rw in rec.readwrite_ids for rec in records):
             for rec in records:
                 if uid in [rw.id for rw in rec.readwrite_ids]:
                     break
@@ -316,7 +316,6 @@ class fnx_fs_file(osv.Model):
                 shared_as=rec.shared_as, folder_id=rec.folder_id.id,
                 context=context)
         return True
-        #raise ERPError('Not Implemented', 'This feature is not yet implemented.')
 
     def fnx_fs_publish_times(self, cr, uid, ids=None, context=None):
         if ids is None:
@@ -402,7 +401,7 @@ class fnx_fs_file(osv.Model):
                             'Unshareable File',
                             'Only files in your home directory or its subfolders can be shared.',
                             )
-                elif len(elements) >= 3 and elements[3] == 'FnxFS':
+                elif len(elements) > 3 and elements[3] == 'FnxFS':
                     raise ERPError(
                             'Unshareable File',
                             'Cannot share files directely from the FnxFS shared directory.',
@@ -544,6 +543,9 @@ class fnx_fs_file(osv.Model):
         }
 
     def create(self, cr, uid, values, context=None):
+        if values['perm_type'] == 'inherit':
+            values.pop('readonly_ids', None)
+            values['readwrite_ids'] = [uid]
         if not values.get('shared_as'):
             values['shared_as'] = values['file_name']
         shared_as = Path(values['shared_as'])

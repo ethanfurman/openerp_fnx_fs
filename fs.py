@@ -210,7 +210,7 @@ class fnx_fs_folder(osv.Model):
     _defaults = {
         'readonly_type': lambda s, c, u, ctx=None: 'selected',
         'folder_type': lambda s, c, u, ctx=None: 'virtual',
-        'mount_options': lambda s, c, u, ctx=None: 'cifs',
+        'mount_options': lambda s, c, u, ctx=None: '-t cifs',
         }
 
     def _get_path(self, cr, uid, parent_id, name, id=None, context=None):
@@ -416,7 +416,10 @@ class fnx_fs_file(osv.Model):
                 output = check_output(copy_cmd, env=new_env)
             except CalledProcessError, exc:
                 raise ERPError('Error','Unable to retrieve file.\n\n%s\n\n%s' % (exc, exc.output))
-            (fs_root/folder/shared_as).chown(*openerp_ids)
+            try:
+                (fs_root/folder/shared_as).chown(*openerp_ids)
+            except OSError:
+                pass
             archive_cmd = ['/usr/local/bin/fnxfs', 'archive', fs_root/folder/shared_as]
             try:
                 output = check_output(archive_cmd, env=new_env)

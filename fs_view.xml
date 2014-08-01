@@ -10,6 +10,7 @@
             <field name="arch" type="xml">
                 <tree string="Folders" version="7.0">
                     <field name="path"/>
+                    <field name="folder_type"/>
                     <field name="description"/>
                 </tree>
             </field>

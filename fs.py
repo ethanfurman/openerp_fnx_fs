@@ -28,7 +28,7 @@ archive_root = Path('/var/openerp/fnxfs_archive/')
 permissions_file = Path('/var/openerp/fnxfs.permissions')
 mount_file = Path('/etc/openerp/fnxfs.mount')
 
-execfile('/etc/openerp/fnxfs')
+execfile('/etc/openerp/fnxfs_credentials')
 
 PERMISSIONS_TYPE = (
     ('inherit', 'Inherited from Folder'),
@@ -61,6 +61,27 @@ PERIOD_TYPE = (
 permissions_lock = threading.Lock()
 mount_lock = threading.Lock()
 
+def _remote_locate(user, file_name, context=None):
+    if context is None:
+        context = {}
+    client = context.get('__client_address__')
+    if client is None:
+        raise ERPError('Error','Unable to locate remote copy because client ip is missing')
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect((client, 8068))
+    sock.sendall('service:find_path\nuser:%s\nfile_name:%s\n' % (user, file_name))
+    data = sock.recv(1024)
+    sock.close()
+    status, result = data.split(':', 1)
+    if status == 'error':
+        error = getattr(errno, result, None)
+        if error is None:
+            raise OSError(result)
+        raise OSError(error)
+    elif status == 'exception':
+        raise Exception(result)
+    return Path(result.strip())
+
 def write_mount(oe, cr):
     fnxfs_folder = oe.pool.get('fnx.fs.folder')
     with mount_lock:
@@ -70,7 +91,17 @@ def write_mount(oe, cr):
                 mount_point = fs_root/folder.path
                 if not mount_point.exists():
                     mount_point.mkdirs()
-                lines.append('%s\t%s\t%s\n' % (mount_point, folder.mount_options, folder.mount_from))
+                mount_options = folder.mount_options
+                mount_from = folder.mount_from
+            elif folder.folder_type == 'shared':
+                mount_point = fs_root/folder.path
+                if not mount_point.exists():
+                    mount_point.mkdirs()
+                mount_options = 'ssh'
+                mount_from = folder.mount_from
+            else:
+                raise ERPError('Programmer Error', 'Unknown folder type: %s' % folder.folder_type)
+            lines.append('%s\t%s\t%s\n' % (mount_point, mount_options, mount_from))
         with open(mount_file, 'w') as data:
             data.write(''.join(lines))
 
@@ -149,6 +180,47 @@ class fnx_fs_folder(osv.Model):
             res[rec.id] = self._get_path(cr, uid, rec.parent_id.id, rec.name, context=context) - fs_root
         return res
 
+    def _get_path(self, cr, uid, parent_id, name, id=None, context=None):
+        records = self.browse(cr, uid, self.search(cr, uid, [], context=context), context=context)
+        folders = {}
+        for rec in records:
+            folders[rec.id] = rec
+        path = [name]
+        while parent_id:
+            rec = folders[parent_id]
+            if id is not None and id == rec.id:
+                raise ERPError('Error', 'Current parent assignment creates a loop!')
+            parent = folders[parent_id]
+            path.append(parent.name)
+            parent_id = parent.parent_id.id
+        folder = fs_root
+        while path:
+            folder /= path.pop()
+        return folder
+
+    def _get_remote_path(self, cr, uid, file_name, context):
+        if uid == SUPERUSER:
+            raise ERPError('Not Implemented', 'Only normal users can create user shares')
+        uid = context.get('uid')
+        res_users = self.pool.get('res.users')
+        user = res_users.browse(cr, SUPERUSER, uid).login
+        try:
+            path = _remote_locate(user, file_name, context=context)
+        except Exception, exc:
+            raise ERPError("Error", "Error trying to locate folder.\n\n%s" % exc)
+        elements = path.elements
+        if len(elements) < 3 or elements[2] != user:
+            raise ERPError(
+                    'Unshareable Folder',
+                    'Only folders in your home directory or its subfolders can be shared.',
+                    )
+        elif len(elements) > 3 and elements[3] == 'FnxFS':
+            raise ERPError(
+                    'Unshareable Folder',
+                    'Cannot share folders directly from the FnxFS shared directory.',
+                    )
+        return path
+
     _name = 'fnx.fs.folder'
     _description = 'FnxFS folder'
     _rec_name = 'path'
@@ -204,6 +276,12 @@ class fnx_fs_folder(osv.Model):
             ),
         'mount_from': fields.char('Mirrored from', size=256),
         'mount_options': fields.char('Mount options', size=64),
+        'file_folder_name': fields.binaryname('File in Folder', type='char', size=256),
+        'owner_id': fields.many2one(
+            'res.users',
+            'Share Owner',
+            domain="[('groups_id.category_id.name','=','FnxFS')]",
+            ),
         }
     _sql_constraints = [
         ('folder_uniq', 'unique(name)', 'Folder already exists in system.'),
@@ -212,29 +290,14 @@ class fnx_fs_folder(osv.Model):
         'readonly_type': lambda s, c, u, ctx=None: 'selected',
         'folder_type': lambda s, c, u, ctx=None: 'virtual',
         'mount_options': lambda s, c, u, ctx=None: '-t cifs',
+        'owner_id': lambda s, c, u, ctx=None: u != 1 and u or '',
         }
-
-    def _get_path(self, cr, uid, parent_id, name, id=None, context=None):
-        records = self.browse(cr, uid, self.search(cr, uid, [], context=context), context=context)
-        folders = {}
-        for rec in records:
-            folders[rec.id] = rec
-        path = [name]
-        while parent_id:
-            rec = folders[parent_id]
-            if id is not None and id == rec.id:
-                raise ERPError('Error', 'Current parent assignment creates a loop!')
-            parent = folders[parent_id]
-            path.append(parent.name)
-            parent_id = parent.parent_id.id
-        folder = fs_root
-        while path:
-            folder /= path.pop()
-        return folder
 
     def create(self, cr, uid, values, context=None):
         parent_id = values.get('parent_id')
         folder = self._get_path(cr, uid, parent_id, values['name'], context=context)
+        if values.get('file_folder_name'):
+            values['file_folder_name'] = self._get_remote_path(cr, uid, values['file_folder_name'], context=context)
         if not folder.exists():
             folder.mkdir()
         if 'description' in values and values['description']:
@@ -243,7 +306,8 @@ class fnx_fs_folder(osv.Model):
         new_id = super(fnx_fs_folder, self).create(cr, uid, values, context=context)
         if values.get('readonly_ids') or values.get('readwrite_ids'):
             write_permissions(self, cr)
-        if values.get('mount_from'):
+        print 'fnx.fs.folder.create().folder_type =', values['folder_type']
+        if values['folder_type'] != 'virtual':
             write_mount(self, cr)
         return new_id
 
@@ -394,9 +458,9 @@ class fnx_fs_file(osv.Model):
                 res_users = self.pool.get('res.users')
                 user = res_users.browse(cr, SUPERUSER, uid).login
                 try:
-                    path = self._remote_locate(cr, user, file_name, context=context)
+                    path = _remote_locate(user, file_name, context=context)
                 except Exception, exc:
-                    raise ERPError("Error", "Unable to locate file.\n\n%s" % exc)
+                    raise ERPError("Error", "Error trying to locate file.\n\n%s" % exc)
                 elements = path.elements
                 if len(elements) < 3 or elements[2] != user:
                     raise ERPError(
@@ -406,7 +470,7 @@ class fnx_fs_file(osv.Model):
                 elif len(elements) > 3 and elements[3] == 'FnxFS':
                     raise ERPError(
                             'Unshareable File',
-                            'Cannot share files directely from the FnxFS shared directory.',
+                            'Cannot share files directly from the FnxFS shared directory.',
                             )
                 file_path = values['full_name'] = path/file_name
             copy_cmd = [
@@ -441,27 +505,6 @@ class fnx_fs_file(osv.Model):
         value['readonly_ids'] = [rec.id for rec in folder.readonly_ids]
         value['readwrite_ids'] = [rec.id for rec in folder.readwrite_ids]
         return res
-
-    def _remote_locate(self, cr, user, file_name, context=None):
-        if context is None:
-            context = {}
-        client = context.get('__client_address__')
-        if client is None:
-            ERPError('Error','Unable to locate remote copy because client ip is missing')
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect((client, 8068))
-        sock.sendall('service:find_path\nuser:%s\nfile_name:%s\n' % (user, file_name))
-        data = sock.recv(1024)
-        sock.close()
-        status, result = data.split(':', 1)
-        if status == 'error':
-            error = getattr(errno, result, None)
-            if error is None:
-                raise OSError(result)
-            raise OSError(error)
-        elif status == 'exception':
-            raise Exception(result)
-        return Path(result.strip())
 
     _name = 'fnx.fs.file'
     _description = 'FnxFS file'
@@ -560,7 +603,7 @@ class fnx_fs_file(osv.Model):
         shared_as = Path(values['shared_as'])
         if values['file_type'] == 'normal':
             if not shared_as.ext:
-                ERPError('Error', 'Shared name should have an extension indicating file type.')
+                raise ERPError('Error', 'Shared name should have an extension indicating file type.')
         else:
             values['ip_addr'] = context['__client_address__']
             source_file = Path(values['file_name'])

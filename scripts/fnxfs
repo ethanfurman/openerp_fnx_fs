@@ -4,11 +4,12 @@ from __future__ import print_function
 
 import pandaemonium
 
+from collections import defaultdict
 from dbf import DateTime
 from getpass import getpass
 from pandaemonium import PidLockFile
 from path import Path
-from scription import Command, REQUIRED, FLAG, OPTION, Run
+from scription import Command, REQUIRED, FLAG, OPTION, Run, Execute
 from VSS.time_machine import PropertyDict
 import errno
 import openerplib
@@ -19,10 +20,25 @@ import time
 
 fs_root = Path('/var/openerp/fnxfs')
 archive_root = Path('/var/openerp/fnxfs_archive')
+fnx_mount = Path('/etc/openerp/fnxfs.mount')
+fnx_mount_pids = Path('/var/run/%s.pid')
 OE = PropertyDict()
 openerp_ids = tuple(pwd.getpwnam('openerp')[2:4])
 
+sshfs_option = [
+        '-o allow_other',
+        '-o kernel_cache',
+        '-o StrictHostKeyChecking=no',
+        '-o reconnect',
+        '-o compression=no',
+        '-o cache_timeout=600',
+        '-o ServerAliveInterval=15',
+        '-o ServerAliveCountMax=4',
+        '-o workaround=rename',
+        ]
+
 execfile('/etc/openerp/credentials')
+execfile('/etc/openerp/fnxfs_credentials')
 
 
 @Command(
@@ -164,9 +180,47 @@ def copy_usershares(folder):
         if not mount.exists():
             mount.mkdir()
         result = Execute(command, password=password)
-    
+
+@Command(
+        subcommand=('start | stop | restart shares from a client machine', ),
+        machine=('ip address of shares to work with', ),
+        )
+def sshfs(subcommand='start', machine='all'):
+    if subcommand != 'start':
+        raise SystemExit('%s not yet implemented' % subcommand)
+    if machine != 'all':
+        raise SystemExit('only "all" is currently supported')
+    start_sshfs(machine, parse_mount_file())
 
 
+def start_sshfs(machine, mapping):
+    """
+    start an sshfs for each share per machine
+
+    machine --> ip address or 'all'
+    mapping --> mapping of ip address to share, mount
+    """
+    for ip, shares in mapping:
+        if machine in ('all', ip):
+            for share, mount in shares:
+                command = ['sshfs'] + sshfs_options + ['root@%s:%s' % (ip, share), mount]
+                Execute(command, password=server_root)
+
+
+def parse_mount_file():
+    shares = defaultdict(set)
+    with open(fnxfs_mount) as data:
+        mounts = data.readlines()
+    for line in mounts:
+        line = line.strip()
+        if not line:
+            continue
+        mount_point, options, source = line.split('\t')
+        if options != 'ssh':
+            continue
+        ip, share_point = source.split(':', 1)
+        shares[ip].add((share_point, mount_point)
+    return shares
 
 def next_archive_name(archive_path):
     """

@@ -43,6 +43,7 @@ READONLY_TYPE = (
 FOLDER_TYPE = (
     ('virtual', 'Virtual'),
     ('reflective', 'Mirrored'),
+    ('shared', 'Shared'),
     )
 
 FILE_TYPE = (
@@ -71,7 +72,7 @@ def write_mount(oe, cr):
                     mount_point.mkdirs()
                 lines.append('%s\t%s\t%s\n' % (mount_point, folder.mount_options, folder.mount_from))
         with open(mount_file, 'w') as data:
-            data.write('\n'.join(lines) + '\n')
+            data.write(''.join(lines))
 
 def write_permissions(oe, cr):
     # write a file in the form of:
@@ -149,7 +150,7 @@ class fnx_fs_folder(osv.Model):
         return res
 
     _name = 'fnx.fs.folder'
-    _description = 'where shared files show up'
+    _description = 'FnxFS folder'
     _rec_name = 'path'
     _order = 'path asc'
     _columns = {
@@ -288,6 +289,7 @@ class fnx_fs_folder(osv.Model):
                 if fp.exists():
                     fp.rmtree()
         return res
+fnx_fs_folder()
 
 
 class fnx_fs_file(osv.Model):
@@ -462,7 +464,7 @@ class fnx_fs_file(osv.Model):
         return Path(result.strip())
 
     _name = 'fnx.fs.file'
-    _description = 'tracked files'
+    _description = 'FnxFS file'
     _rec_name = 'shared_as'
     _columns = {
         'user_id': fields.many2one(
@@ -546,6 +548,10 @@ class fnx_fs_file(osv.Model):
         }
 
     def create(self, cr, uid, values, context=None):
+        fnx_fs_folder = self.pool.get('fnx.fs.folder')
+        folder = fnx_fs_folder.browse(cr, uid, values['folder_id'], context=context)
+        if folder.folder_type != 'virtual':
+            raise ERPError('Invalid Folder', 'Files can only be saved into Virtual folders')
         if values['perm_type'] == 'inherit':
             values.pop('readonly_ids', None)
             values['readwrite_ids'] = [uid]
@@ -596,6 +602,9 @@ class fnx_fs_file(osv.Model):
             sfe = source_file and source_file.ext
             shared_as = Path(values.get('shared_as', rec.shared_as))
             folder_id = values.get('folder_id', rec.folder_id.id)
+            folder = fnx_fs_folder.browse(cr, uid, folder_id, context=context)
+            if folder.folder_type != 'virtual':
+                raise ERPError('Invalid Folder', 'Files can only be saved into Virtual folders')
             old_path = fs_root/rec.folder_id.path/rec.shared_as
             if source_file and shared_as.ext not in ('.', sfe):
                 shared_as += source_file.ext
@@ -625,3 +634,4 @@ class fnx_fs_file(osv.Model):
         success = super(fnx_fs_file, self).write(cr, uid, ids, values, context=context)
         write_permissions(self, cr)
         return success
+fnx_fs_file()

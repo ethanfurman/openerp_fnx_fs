@@ -30,8 +30,9 @@
                         </group>
                         <group>
                             <field name="folder_type"/>
-                            <field name="mount_from" attrs="{'invisible':[('folder_type','=','virtual')], 'required':[('folder_type','=','reflective')]}"/>
-                            <field name="mount_options" attrs="{'invisible':[('folder_type','=','virtual')]}"/>
+                            <label for="mount_from" string="Source location" attrs="{'invisible':[('folder_type','=','virtual')]}"/>
+                            <field name="mount_from" attrs="{'invisible':[('folder_type','=','virtual')], 'required':['|',('folder_type','=','reflective'),('folder_type','=','shared')]}" nolabel="1"/>
+                            <field name="mount_options" attrs="{'invisible':['|',('folder_type','=','virtual'), ('folder_type','=','shared')]}"/>
                         </group>
                     </group>
                     <group>

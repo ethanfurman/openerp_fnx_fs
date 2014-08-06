@@ -100,7 +100,7 @@ def write_mount(oe, cr):
                 if not mount_point.exists():
                     mount_point.mkdirs()
                 mount_options = 'ssh'
-                mount_from = folder.mount_from
+                mount_from = folder.file_folder_name
             else:
                 raise ERPError('Programmer Error', 'Unknown folder type: %s' % folder.folder_type)
             lines.append('%s\t%s\t%s\n' % (mount_point, mount_options, mount_from))
@@ -125,9 +125,6 @@ def write_permissions(oe, cr):
     with permissions_lock:
         ids = []
         mode = 'w'
-        #if append_id is not None:
-        #    ids.append(append_id)
-        #    mode = 'a'
         folders = fnxfs_folder.browse(cr, SUPERUSER, fnxfs_folder.search(cr, SUPERUSER, []))
         files = fnxfs_file.browse(cr, SUPERUSER, fnxfs_file.search(cr, SUPERUSER, []))
         lines = []
@@ -303,10 +300,11 @@ class fnx_fs_folder(osv.Model):
             if parent_folder.folder_type != 'virtual':
                 raise ERPError('Incompatible Folder', 'Only Virtual folders can have subfolders')
         folder = self._get_path(cr, uid, parent_id, values['name'], context=context)
-        if folder.folder_type != 'virtual' and parent_id:
-
         if values.get('file_folder_name'):
-            values['file_folder_name'] = self._get_remote_path(cr, uid, values['file_folder_name'], context=context)
+            values['file_folder_name'] = '%s:%s' % (
+                    context['__client_address__'],
+                    self._get_remote_path(cr, uid, values['file_folder_name'], context=context),
+                    )
         if not folder.exists():
             folder.mkdir()
         if 'description' in values and values['description']:
@@ -317,13 +315,13 @@ class fnx_fs_folder(osv.Model):
             write_permissions(self, cr)
         print 'fnx.fs.folder.create().folder_type =', values['folder_type']
         if values['folder_type'] != 'virtual':
-            write_mount(self, cr)
             if values['folder_type'] == 'shared':
                 sshfs_cmd = ['/usr/local/bin/fnxfs', 'sshfs', 'start', fs_root/folder/shared_as]
             try:
                 output = check_output(archive_cmd, env=new_env)
             except Exception, exc:
-                raise ERPError('Error','Unable to archive file:\n\n%s' % (exc, ))
+                raise ERPError('Error','Unable to mount share:\n\n%s' % (exc, ))
+            write_mount(self, cr)
         return new_id
 
     def write(self, cr, uid, ids, values, context=None):

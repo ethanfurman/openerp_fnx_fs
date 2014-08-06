@@ -7,34 +7,55 @@ import pandaemonium
 from collections import defaultdict
 from dbf import DateTime
 from getpass import getpass
-from pandaemonium import PidLockFile
+from pandaemonium import Daemon, PidLockFile, FileTracker
 from path import Path
 from scription import Command, REQUIRED, FLAG, OPTION, Run, Execute
 from VSS.time_machine import PropertyDict
 import errno
+import logging
 import openerplib
+import os
 import pwd
 import sys
 import time
 
+openerp_ids = tuple(pwd.getpwnam('openerp')[2:4])
+log_file = Path('/var/log/openerp/sshfs.log')
+open(log_file, 'w').close()
+log_file.chown(*openerp_ids)
+
+FileTracker.install()
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+
+fh = logging.FileHandler(
+        filename='/var/log/openerp/sshfs.log',
+        encoding='utf8',
+        )
+fh.setLevel(logging.DEBUG)
+fh.setFormatter(logging.Formatter("%(asctime)-30s %(name)-40s %(message)s"))
+
+logger.addHandler(fh)
+
 
 fs_root = Path('/var/openerp/fnxfs')
 archive_root = Path('/var/openerp/fnxfs_archive')
-fnx_mount = Path('/etc/openerp/fnxfs.mount')
-fnx_mount_pids = Path('/var/run/%s.pid')
+fnxfs_mount = Path('/etc/openerp/fnxfs.mount')
+fnxfs_mount_pids = Path('/var/run/%s.pid')
 OE = PropertyDict()
-openerp_ids = tuple(pwd.getpwnam('openerp')[2:4])
 
-sshfs_option = [
-        '-o allow_other',
-        '-o kernel_cache',
-        '-o StrictHostKeyChecking=no',
-        '-o reconnect',
-        '-o compression=no',
-        '-o cache_timeout=600',
-        '-o ServerAliveInterval=15',
-        '-o ServerAliveCountMax=4',
-        '-o workaround=rename',
+sshfs_options = [
+        '-f',
+        '-o','allow_root',
+        '-o','kernel_cache',
+        '-o','StrictHostKeyChecking=no',
+        '-o','password_stdin',
+        '-o','reconnect',
+        '-o','compression=no',
+        '-o','cache_timeout=600',
+        '-o','ServerAliveInterval=15',
+        '-o','ServerAliveCountMax=4',
+        '-o','workaround=rename',
         ]
 
 execfile('/etc/openerp/credentials')
@@ -191,7 +212,7 @@ def sshfs(subcommand='', share='all'):
     """
     if subcommand != 'start':
         raise SystemExit('%s not yet implemented' % subcommand)
-    if share != 'all' or not share.startswith('/var/openerp/fnxfs/'):
+    if share != 'all' and not share.startswith('/var/openerp/fnxfs/'):
         raise SystemExit('that is not yet supported')
     start_sshfs(share, parse_mount_file())
 
@@ -203,17 +224,34 @@ def start_sshfs(share, mapping):
     mapping --> mapping of ip address to share, mount
     """
     # ip is an ip address or a mount point
-    for ip, bundle in mapping:
+    for ip, bundle in mapping.items():
         if share in ('all', ip):
             for typ, inf in bundle:
                 if typ == 'ip':
                     shr, mnt = inf
-                    command = ['sshfs'] + sshfs_options + ['root@%s:%s' % (ip, shr), mnt]
-                    Execute(command, password=server_root)
+                    src = 'root@%s:%s' % (ip, shr)
                 elif typ == 'mount':
-                    src = inf
-                    command = ['sshfs'] + sshfs_options + ['root@%s' % src, mnt]
-                    Execute(command, password=server_root)
+                    src = 'root@%s' % inf
+                    mnt = ip
+                else:
+                    raise ValueError('Unknown bundle: %s' % typ)
+                d = Daemon(
+                        target=start_ssh_server,
+                        args=(src, mnt),
+                        stdin=server_root+'\r\n',
+                        stdout=FileTracker.active(log_file),
+                        stderr=FileTracker.active(log_file),
+                        process_ids=openerp_ids,
+                        )
+                d.start()
+                if d.output:
+                    print(d.output)
+                if d.error:
+                    print(d.error)
+
+def start_ssh_server(src, mnt):
+    command = ['/usr/bin/sshfs'] + sshfs_options + [src, mnt]
+    os.execv(command[0], command)
 
 def parse_mount_file():
     shares = defaultdict(set)

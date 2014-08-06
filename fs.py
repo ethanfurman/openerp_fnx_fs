@@ -87,7 +87,9 @@ def write_mount(oe, cr):
     with mount_lock:
         lines = []
         for folder in fnxfs_folder.browse(cr, SUPERUSER, fnxfs_folder.search(cr, SUPERUSER, [])):
-            if folder.folder_type == 'reflective':
+            if folder.folder_type == 'virtual':
+                continue
+            elif folder.folder_type == 'reflective':
                 mount_point = fs_root/folder.path
                 if not mount_point.exists():
                     mount_point.mkdirs()
@@ -226,6 +228,7 @@ class fnx_fs_folder(osv.Model):
     _rec_name = 'path'
     _order = 'path asc'
     _columns = {
+        'id': fields.integer('ID'),
         'name': fields.char('Folder Name', size=64, required=True),
         'path': fields.function(
             _construct_path,
@@ -295,7 +298,13 @@ class fnx_fs_folder(osv.Model):
 
     def create(self, cr, uid, values, context=None):
         parent_id = values.get('parent_id')
+        if parent_id:
+            parent_folder = self.browse(cr, uid, parent_id, context=context)
+            if parent_folder.folder_type != 'virtual':
+                raise ERPError('Incompatible Folder', 'Only Virtual folders can have subfolders')
         folder = self._get_path(cr, uid, parent_id, values['name'], context=context)
+        if folder.folder_type != 'virtual' and parent_id:
+
         if values.get('file_folder_name'):
             values['file_folder_name'] = self._get_remote_path(cr, uid, values['file_folder_name'], context=context)
         if not folder.exists():
@@ -309,6 +318,12 @@ class fnx_fs_folder(osv.Model):
         print 'fnx.fs.folder.create().folder_type =', values['folder_type']
         if values['folder_type'] != 'virtual':
             write_mount(self, cr)
+            if values['folder_type'] == 'shared':
+                sshfs_cmd = ['/usr/local/bin/fnxfs', 'sshfs', 'start', fs_root/folder/shared_as]
+            try:
+                output = check_output(archive_cmd, env=new_env)
+            except Exception, exc:
+                raise ERPError('Error','Unable to archive file:\n\n%s' % (exc, ))
         return new_id
 
     def write(self, cr, uid, ids, values, context=None):
@@ -510,6 +525,7 @@ class fnx_fs_file(osv.Model):
     _description = 'FnxFS file'
     _rec_name = 'shared_as'
     _columns = {
+        'id': fields.integer('ID'),
         'user_id': fields.many2one(
             'res.users',
             'Owner',
@@ -546,6 +562,7 @@ class fnx_fs_file(osv.Model):
             help='Folder to present document in.',
             required=True,
             ondelete='restrict',
+            domain="[('folder_type','=','virtual')]",
             ),
         # simple path/file.ext of file (no IP address)
         # Emile has created a binaryname field type to allow client file selection but transferring only the file name

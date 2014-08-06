@@ -183,29 +183,37 @@ def copy_usershares(folder):
 
 @Command(
         subcommand=('start | stop | restart shares from a client machine', ),
-        machine=('ip address of shares to work with', ),
+        share=('mount point or ip address of shares, or "all"', ),
         )
-def sshfs(subcommand='start', machine='all'):
+def sshfs(subcommand='', share='all'):
+    """
+    start any unstarted sshfs mounts
+    """
     if subcommand != 'start':
         raise SystemExit('%s not yet implemented' % subcommand)
-    if machine != 'all':
-        raise SystemExit('only "all" is currently supported')
-    start_sshfs(machine, parse_mount_file())
+    if share != 'all' or not share.startswith('/var/openerp/fnxfs/'):
+        raise SystemExit('that is not yet supported')
+    start_sshfs(share, parse_mount_file())
 
-
-def start_sshfs(machine, mapping):
+def start_sshfs(share, mapping):
     """
-    start an sshfs for each share per machine
+    start an sshfs for each share
 
-    machine --> ip address or 'all'
+    shares  --> ip address, mount point, or 'all'
     mapping --> mapping of ip address to share, mount
     """
-    for ip, shares in mapping:
-        if machine in ('all', ip):
-            for share, mount in shares:
-                command = ['sshfs'] + sshfs_options + ['root@%s:%s' % (ip, share), mount]
-                Execute(command, password=server_root)
-
+    # ip is an ip address or a mount point
+    for ip, bundle in mapping:
+        if share in ('all', ip):
+            for typ, inf in bundle:
+                if typ == 'ip':
+                    shr, mnt = inf
+                    command = ['sshfs'] + sshfs_options + ['root@%s:%s' % (ip, shr), mnt]
+                    Execute(command, password=server_root)
+                elif typ == 'mount':
+                    src = inf
+                    command = ['sshfs'] + sshfs_options + ['root@%s' % src, mnt]
+                    Execute(command, password=server_root)
 
 def parse_mount_file():
     shares = defaultdict(set)
@@ -219,7 +227,8 @@ def parse_mount_file():
         if options != 'ssh':
             continue
         ip, share_point = source.split(':', 1)
-        shares[ip].add((share_point, mount_point)
+        shares[ip].add(('ip', (share_point, mount_point)))
+        shares[mount_point].add(('mount', (source,)))
     return shares
 
 def next_archive_name(archive_path):

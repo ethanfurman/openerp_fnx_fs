@@ -53,8 +53,7 @@ sshfs_options = [
         '-o','reconnect',
         '-o','compression=no',
         '-o','cache_timeout=600',
-        '-o','ServerAliveInterval=15',
-        '-o','ServerAliveCountMax=4',
+        '-o','ServerAliveInterval=5',
         '-o','workaround=rename',
         ]
 
@@ -263,8 +262,8 @@ def parse_mount_file():
         if not line:
             continue
         mount_point, options, source = line.split('\t')
-        if mount_point.startswith('/home/'):
-            mount_point = '/fnxfs_home/' + mount_point[6:]
+        if ':/home/' in source:
+            source = source.replace(':/home/', ':/fnxfs_home/')
         if options != 'ssh':
             continue
         ip, share_point = source.split(':', 1)

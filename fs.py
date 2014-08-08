@@ -179,6 +179,12 @@ class fnx_fs_folder(osv.Model):
             res[rec.id] = self._get_path(cr, uid, rec.parent_id.id, rec.name, context=context) - fs_root
         return res
 
+    def _get_default_folder_type(self, cr, uid, context=None):
+        if self.pool.get('res.users').has_group(cr, uid, 'fnx_fs.creator'):
+            return 'virtual'
+        else:
+            return 'shared'
+
     def _get_path(self, cr, uid, parent_id, name, id=None, context=None):
         records = self.browse(cr, uid, self.search(cr, uid, [], context=context), context=context)
         folders = {}
@@ -220,6 +226,17 @@ class fnx_fs_folder(osv.Model):
                     )
         return path
 
+    def _user_level(self, cr, uid, context=None):
+        res_users = self.pool.get('res.users')
+        if res_users.has_group(cr, uid, 'fnx_fs.manager'):
+            return 'manager'
+        elif res_users.has_group(cr, uid, 'fnx_fs.creator'):
+            return 'creator'
+        elif res_users.has_group(cr, uid, 'fnx_fs.consumer'):
+            return 'consumer'
+        else:
+            raise ERPError('Programming Error', 'Cannot find FnxFS group in %r' % groups)
+
     _name = 'fnx.fs.folder'
     _description = 'FnxFS folder'
     _rec_name = 'path'
@@ -244,6 +261,7 @@ class fnx_fs_folder(osv.Model):
             'fnx.fs.folder',
             'Parent Folder',
             ondelete='restrict',
+            domain="[('folder_type','=','virtual')]"            
             ),
         'child_ids': fields.one2many(
             'fnx.fs.folder',
@@ -288,7 +306,7 @@ class fnx_fs_folder(osv.Model):
         ]
     _defaults = {
         'readonly_type': lambda s, c, u, ctx=None: 'selected',
-        'folder_type': lambda s, c, u, ctx=None: 'virtual',
+        'folder_type': _get_default_folder_type,
         'mount_options': lambda s, c, u, ctx=None: '-t cifs',
         'owner_id': lambda s, c, u, ctx=None: u != 1 and u or '',
         }
@@ -300,27 +318,36 @@ class fnx_fs_folder(osv.Model):
             if parent_folder.folder_type != 'virtual':
                 raise ERPError('Incompatible Folder', 'Only Virtual folders can have subfolders')
         folder = self._get_path(cr, uid, parent_id, values['name'], context=context)
+        if values['folder_type'] != 'shared':
+            user_level = self._user_level(cr, uid, context=context)
+            if (
+                user_level == 'consumer' or
+                user_level == 'creator' and values['folder_type'] == 'mirrored'
+                ):
+                raise ERPError('User Error', 'You cannot create folders of that type.')
+        else:
+            uid = values['owner_id']
         if values.get('file_folder_name'):
+            target = values['file_folder_name']
             values['file_folder_name'] = '%s:%s' % (
-                    context['__client_address__'],
-                    self._get_remote_path(cr, uid, values['file_folder_name'], context=context),
-                    )
+                context['__client_address__'],
+                self._get_remote_path(cr, uid, target, context=context),
+                )
         if not folder.exists():
             folder.mkdir()
-        if 'description' in values and values['description']:
+        if 'description' in values and values['description'] and values['folder_type'] == 'virtual':
             with open(folder/'README', 'w') as readme:
                 readme.write(values['description'])
         new_id = super(fnx_fs_folder, self).create(cr, uid, values, context=context)
         if values.get('readonly_ids') or values.get('readwrite_ids'):
             write_permissions(self, cr)
-        print 'fnx.fs.folder.create().folder_type =', values['folder_type']
         if values['folder_type'] != 'virtual':
             if values['folder_type'] == 'shared':
-                sshfs_cmd = ['/usr/local/bin/fnxfs', 'sshfs', 'start', fs_root/folder/shared_as]
-            try:
-                output = check_output(archive_cmd, env=new_env)
-            except Exception, exc:
-                raise ERPError('Error','Unable to mount share:\n\n%s' % (exc, ))
+                sshfs_cmd = ['/usr/local/bin/fnxfs', 'sshfs', 'start', folder]
+                try:
+                    output = check_output(sshfs_cmd)
+                except Exception, exc:
+                    raise ERPError('Error','Unable to mount share:\n\ncommand: %s\n\nresult: %s' % (' '.join(sshfs_cmd), exc))
             write_mount(self, cr)
         return new_id
 
@@ -333,7 +360,10 @@ class fnx_fs_folder(osv.Model):
                 parent_id = values.get('parent_id', rec.parent_id.id)
                 name = values.get('name', rec.name)
                 new_path = self._get_path(cr, uid, parent_id, name, id=rec.id, context=context)
+                if 'folder_type' in values:
+                    raise ERPError('Not Implemented', 'Cannot change the folder type.')
                 if 'parent_id' in values or 'name' in values:
+                    # TODO: unmount before and mount afterwards the non-virtual folders
                     old_path = self._get_path(cr, uid, rec.parent_id.id, rec.name, context=context)
                     old = old_path.exists()
                     new = new_path.exists()
@@ -356,17 +386,39 @@ class fnx_fs_folder(osv.Model):
     def unlink(self, cr, uid, ids, context=None):
         if isinstance(ids, (int, long)):
             ids = [ids]
+        user_level = self._user_level(cr, uid, context=context)
         to_be_deleted = []
-        records = self.browse(cr, uid, ids, context=context)
-        for rec in records:
-            path = self._get_path(cr, uid, rec.parent_id.id, rec.name, context=context)
+        to_be_unmounted = []
+        folders = self.browse(cr, uid, ids, context=context)
+        for folder in folders:
+            path = self._get_path(cr, uid, folder.parent_id.id, folder.name, context=context)
+            if folder.folder_type == 'shared':
+                if user_level != 'manager' and folder.owner_id.id != uid:
+                    raise ERPError('Error', 'Only %s or a manager can delete this share' % folder.owner_id.name)
+                to_be_unmounted.append(path)
+            elif folder.folder_type == 'reflective':
+                if user_level != 'manager':
+                    raise ERPError('Error', 'Only managers can remove Mirrored folders')
+                to_be_unmounted.append(path)
+            elif folder.folder_type == 'virtual':
+                if user_level != 'manager':
+                    raise ERPError('Error', 'Only managers can remove Virtual folders')
+                to_be_deleted.append(path)
+            else:
+                raise ERPError('Programming Error', 'Unknown folder type: %s' % folder.folder_type)
         res = super(fnx_fs_folder, self).unlink(cr, uid, ids, context=context)
         if res:
             for fp in to_be_deleted:
                 if fp.exists():
                     fp.rmtree()
+            for fp in to_be_unmounted:
+                try:
+                    output = check_output(['/usr/local/bin/fnxfs', 'sshfs', 'stop', fp])
+                except Exception, exc:
+                    raise ERPError('Error', 'Unable to unmount folder:\n\n%s' % (exc, ))
+            write_permissions(self, cr)
+            write_mount(self, cr)
         return res
-fnx_fs_folder()
 
 
 class fnx_fs_file(osv.Model):
@@ -465,7 +517,7 @@ class fnx_fs_file(osv.Model):
             login = get_user_login(self, cr, uid, owner_id)
             folder = fnx_fs_folder.browse(cr, uid, folder_id, context=context).path
             new_env = os.environ.copy()
-            new_env['SSHPASS'] = client_pass
+            new_env['SSHPASS'] = server_root
             if file_path is None:
                 uid = context.get('uid')
                 res_users = self.pool.get('res.users')
@@ -506,10 +558,8 @@ class fnx_fs_file(osv.Model):
                 raise ERPError('Error','Unable to archive file:\n\n%s' % (exc, ))
 
     def change_permissions(self, cr, uid, ids, perm_type, folder_id, called_from):
-        if called_from == 'folder' and perm_type == 'custom':
-            return False
         res = {}
-        if not folder_id:
+        if called_from == 'folder' and perm_type == 'custom' or not folder_id:
             return res
         # assuming only one id
         folder = self.pool.get('fnx.fs.folder').browse(cr, uid, folder_id)
@@ -557,17 +607,20 @@ class fnx_fs_file(osv.Model):
         'folder_id': fields.many2one(
             'fnx.fs.folder',
             'Folder',
-            help='Folder to present document in.',
             required=True,
             ondelete='restrict',
             domain="[('folder_type','=','virtual')]",
             ),
         # simple path/file.ext of file (no IP address)
         # Emile has created a binaryname field type to allow client file selection but transferring only the file name
-        'file_type': fields.selection(FILE_TYPE, 'Share Type', help=
-            "Auto Publish --> OpenERP will update the file.\n"
-            "Publish --> User updates the file via OpenERP.\n"
-            "Read/Write --> Normal write access via the FnxFS file system."
+        'file_type': fields.selection(
+            FILE_TYPE,
+            'Share Type',
+            help=
+                "Auto Publish --> OpenERP will update the file.\n"
+                "Publish --> User updates the file via OpenERP.\n"
+                "Read/Write --> Normal write access via the FnxFS file system.",
+            required=True,
             ),
         'file_name': fields.binaryname('Source File', type='char', size=256),
         'full_name': fields.char('Full path and file name', size=512),
@@ -599,17 +652,14 @@ class fnx_fs_file(osv.Model):
             ]
     _defaults = {
         'user_id': lambda s, c, u, ctx={}: u,
-        'perm_type': lambda s, c, u, ctx={}: 'inherit',
+        'perm_type': lambda *a: 'inherit',
         'readwrite_ids': lambda s, c, u, ctx={}: [u],
-        'readonly_type': lambda s, c, u, ctx={}: 'all',
-        'file_type': lambda s, c, u, ctx={}: 'manual',
+        'readonly_type': lambda *a: 'all',
+        'file_type': lambda *a: 'manual',
         }
 
     def create(self, cr, uid, values, context=None):
         fnx_fs_folder = self.pool.get('fnx.fs.folder')
-        folder = fnx_fs_folder.browse(cr, uid, values['folder_id'], context=context)
-        if folder.folder_type != 'virtual':
-            raise ERPError('Invalid Folder', 'Files can only be saved into Virtual folders')
         if values['perm_type'] == 'inherit':
             values.pop('readonly_ids', None)
             values['readwrite_ids'] = [uid]
@@ -661,8 +711,6 @@ class fnx_fs_file(osv.Model):
             shared_as = Path(values.get('shared_as', rec.shared_as))
             folder_id = values.get('folder_id', rec.folder_id.id)
             folder = fnx_fs_folder.browse(cr, uid, folder_id, context=context)
-            if folder.folder_type != 'virtual':
-                raise ERPError('Invalid Folder', 'Files can only be saved into Virtual folders')
             old_path = fs_root/rec.folder_id.path/rec.shared_as
             if source_file and shared_as.ext not in ('.', sfe):
                 shared_as += source_file.ext

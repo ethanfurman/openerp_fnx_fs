@@ -7,7 +7,7 @@ import pandaemonium
 from collections import defaultdict
 from dbf import DateTime
 from getpass import getpass
-from pandaemonium import Daemon, PidLockFile, FileTracker
+from pandaemonium import Daemon, PidLockFile, FileTracker, STDOUT, STDERR
 from path import Path
 from scription import Command, REQUIRED, FLAG, OPTION, Run, Execute
 from VSS.time_machine import PropertyDict
@@ -45,7 +45,7 @@ fnxfs_mount_pids = Path('/var/run/%s.pid')
 OE = PropertyDict()
 
 sshfs_options = [
-        '-f',
+        #'-f',
         '-o','allow_root',
         '-o','kernel_cache',
         '-o','StrictHostKeyChecking=no',
@@ -202,59 +202,69 @@ def copy_usershares(folder):
         result = Execute(command, password=password)
 
 @Command(
-        subcommand=('start | stop | restart shares from a client machine', ),
-        share=('mount point or ip address of shares, or "all"', ),
+        subcommand=(
+            'start | stop | restart shares from a client machine, or [in]active to list all [in]active shares',
+            REQUIRED,
+            'c',
+            str,
+            ['start', 'stop', 'restart', 'active', 'inactive'],
+            ),
+        share=('mount point, ip address of shares, "ssh", "smb", or "all",', ),
         )
-def sshfs(subcommand='', share='all'):
+def shares(subcommand='', share=''):
     """
     start any unstarted sshfs mounts
     """
-    if subcommand != 'start':
-        raise SystemExit('%s not yet implemented' % subcommand)
-    if share != 'all' and not share.startswith('/var/openerp/fnxfs/'):
-        raise SystemExit('that is not yet supported')
-    start_sshfs(share, parse_mount_file())
+    if not share :
+        if subcommand in ('active', 'inactive'):
+            share = 'all'
+        else:
+            share = 'ssh'
+    target_shares = parse_mount_file(share)
+    active = []
+    inactive = []
+    for typ, params in target_shares:
+        source, mount = params[0], params[-1]
+        if mount.listdir():
+            active.append(mount)
+        else:
+            inactive.append((typ, source, mount))
+    if subcommand == 'active':
+        for typ, src, mnt in active:
+            print('%5s: %-40s %-40s' % (typ, mnt, src))
+    if subcommand == 'inactive':
+        for typ, src, mnt in inactive:
+            print('%5s: %-40s %-40s' % (typ, mnt, src))
+    if subcommand in ('restart', 'stop'):
+        for typ, params in target_shares:
+            if typ == 'ssh':
+                source, mount = params
+                print('stopping ', mount, '. . . ', end='')
+                print(stop_sshfs(mount))
+            elif typ == 'ip':
+                source, options, mount = params
+                print('stopping ', mount, '. . . ', end='')
+                print(stop_smb(mount))
+            else:
+                raise ValueError('unknown share type: %s' % typ)
+    if subcommand in ('restart', 'start'):
+        for typ, params in target_shares:
+            if typ == 'ssh':
+                source, mount = params
+                print('starting ', mount, '. . . ', end='')
+                print(start_sshfs(source, mount))
+            elif typ == 'ip':
+                source, options, mount = params
+                print('starting ', mount, '. . . ', end='')
+                print(start_smb(source, options, mount))
+            else:
+                raise ValueError('unknown share type: %s' % typ)
 
-def start_sshfs(share, mapping):
+def parse_mount_file(share):
     """
-    start an sshfs for each share
-
-    shares  --> ip address, mount point, or 'all'
-    mapping --> mapping of ip address to share, mount
+    return all matching entry for share
     """
-    # ip is an ip address or a mount point
-    for ip, bundle in mapping.items():
-        if share in ('all', ip):
-            for typ, inf in bundle:
-                if typ == 'ip':
-                    shr, mnt = inf
-                    src = 'root@%s:%s' % (ip, shr)
-                elif typ == 'mount':
-                    src = 'root@%s' % inf
-                    mnt = ip
-                else:
-                    raise ValueError('Unknown bundle: %s' % typ)
-                d = Daemon(
-                        target=start_ssh_server,
-                        args=(src, mnt),
-                        stdin=server_root+'\r\n',
-                        stdout=FileTracker.active(log_file),
-                        stderr=FileTracker.active(log_file),
-                        process_ids=openerp_ids,
-                        )
-                d.start()
-                if d.output:
-                    print(d.output)
-                if d.error:
-                    print(d.error)
-                    raise SystemExit("error occurred")
-
-def start_ssh_server(src, mnt):
-    command = ['/usr/bin/sshfs'] + sshfs_options + [src, mnt]
-    os.execv(command[0], command)
-
-def parse_mount_file():
-    shares = defaultdict(set)
+    shares = []
     with open(fnxfs_mount) as data:
         mounts = data.readlines()
     for line in mounts:
@@ -264,12 +274,74 @@ def parse_mount_file():
         mount_point, options, source = line.split('\t')
         if ':/home/' in source:
             source = source.replace(':/home/', ':/fnxfs_home/')
-        if options != 'ssh':
-            continue
-        ip, share_point = source.split(':', 1)
-        shares[ip].add(('ip', (share_point, mount_point)))
-        shares[mount_point].add(('mount', (source,)))
+        if (
+            share == 'all' or
+            options == 'ssh' and share == 'ssh' or
+            options == 'smb' and share != 'ssh' or
+            fs_root/share == mount_point or
+            share == source.split(':', 1)[0].strip('/')
+            ):
+                if options == 'ssh':
+                    shares.append(('ssh', (source, Path(mount_point))))
+                else:
+                    shares.append(('ip', (source, options, Path(mount_point))))
     return shares
+
+def start_smb(source, options, mount):
+    """
+    start a normal mount
+    """
+    command = ['/bin/mount', source] + options.split() + [mount]
+    output = Execute(command, password=server_root)
+    result = ''
+    if output.stdout:
+        result += output.stdout
+    return result
+
+def start_sshfs(source, mount):
+    """
+    start an sshfs session to make a share available
+    """
+    def start_ssh_server(src, mnt):
+        src = 'root@%s' % src
+        command = ['/usr/bin/sshfs'] + sshfs_options + [src, mnt]
+        os.execv(command[0], command)
+    d = Daemon(
+            target=start_ssh_server,
+            args=(source, mount),
+            stdin=server_root+'\r\n',
+            inherit_files=[STDOUT, STDERR],
+            process_ids=openerp_ids,
+            )
+    d.start()
+    result = ''
+    if d.output:
+        result += d.output
+    if d.error:
+        result += d.error
+    return result
+
+def stop_smb(mount):
+    """
+    unmounts a mount
+    """
+    command = ['/bin/umount', mount]
+    output = Execute(command)
+    result = ''
+    if output.stdout:
+        result = output.stdout
+    return result
+
+def stop_sshfs(mount):
+    """
+    unmounts an sshfs share and stop sshfs process
+    """
+    command = ['/bin/fusermount', '-u', mount]
+    output = Execute(command)
+    result = ''
+    if output.stdout:
+        result += output.stdout
+    return result
 
 def next_archive_name(archive_path):
     """

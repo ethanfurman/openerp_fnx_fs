@@ -207,8 +207,7 @@ class fnx_fs_folder(osv.Model):
         if uid == SUPERUSER:
             raise ERPError('Not Implemented', 'Only normal users can create user shares')
         uid = context.get('uid')
-        res_users = self.pool.get('res.users')
-        user = res_users.browse(cr, SUPERUSER, uid).login
+        user = self.pool.get('res.users').browse(cr, SUPERUSER, uid).login
         try:
             path = _remote_locate(user, file_name, context=context)
         except Exception, exc:
@@ -227,12 +226,12 @@ class fnx_fs_folder(osv.Model):
         return path
 
     def _user_level(self, cr, uid, context=None):
-        res_users = self.pool.get('res.users')
-        if res_users.has_group(cr, uid, 'fnx_fs.manager'):
+        user = self.pool.get('res.users').browse(cr, SUPERUSER, uid, context=context)
+        if user.has_group('fnx_fs.manager'):
             return 'manager'
-        elif res_users.has_group(cr, uid, 'fnx_fs.creator'):
+        elif user.has_group('fnx_fs.creator'):
             return 'creator'
-        elif res_users.has_group(cr, uid, 'fnx_fs.consumer'):
+        elif user.has_group('fnx_fs.consumer'):
             return 'consumer'
         else:
             raise ERPError('Programming Error', 'Cannot find FnxFS group in %r' % groups)
@@ -325,8 +324,6 @@ class fnx_fs_folder(osv.Model):
                 user_level == 'creator' and values['folder_type'] == 'mirrored'
                 ):
                 raise ERPError('User Error', 'You cannot create folders of that type.')
-        else:
-            uid = values['owner_id']
         if values.get('file_folder_name'):
             target = values['file_folder_name']
             values['file_folder_name'] = '%s:%s' % (

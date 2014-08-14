@@ -656,7 +656,9 @@ class fnx_fs_file(osv.Model):
         }
 
     def create(self, cr, uid, values, context=None):
-        fnx_fs_folder = self.pool.get('fnx.fs.folder')
+        folder = self.pool.get('fnx.fs.folder').browse(cr, uid, values['folder_id'], context=context)
+        if folder.folder_type != 'virtual':
+            raise ERPError('Invalid Folder', 'Files can only be saved into Virtual folders')
         if values['perm_type'] == 'inherit':
             values.pop('readonly_ids', None)
             values['readwrite_ids'] = [uid]
@@ -708,6 +710,8 @@ class fnx_fs_file(osv.Model):
             shared_as = Path(values.get('shared_as', rec.shared_as))
             folder_id = values.get('folder_id', rec.folder_id.id)
             folder = fnx_fs_folder.browse(cr, uid, folder_id, context=context)
+            if folder.folder_type != 'virtual':
+                raise ERPError('Invalid Folder', 'Files can only be saved into Virtual folders')
             old_path = fs_root/rec.folder_id.path/rec.shared_as
             if source_file and shared_as.ext not in ('.', sfe):
                 shared_as += source_file.ext

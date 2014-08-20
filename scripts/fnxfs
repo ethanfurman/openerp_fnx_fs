@@ -1,4 +1,4 @@
-#!/usr/local/bin/suid-python
+#!/usr/local/bin/python
 
 from __future__ import print_function
 
@@ -9,7 +9,7 @@ from dbf import DateTime
 from getpass import getpass
 from pandaemonium import Daemon, PidLockFile, FileTracker, STDOUT, STDERR
 from path import Path
-from scription import Command, REQUIRED, FLAG, OPTION, Run, Execute
+from scription import Script, Command, REQUIRED, FLAG, OPTION, Run, Execute
 from VSS.time_machine import PropertyDict
 import errno
 import logging
@@ -60,6 +60,7 @@ sshfs_options = [
 execfile('/etc/openerp/credentials')
 execfile('/etc/openerp/fnxfs_credentials')
 
+Script(DEBUG=False)
 
 @Command(
         src=('file to archive', REQUIRED, 'f', Path),
@@ -220,15 +221,24 @@ def shares(subcommand='', share=''):
             share = 'all'
         else:
             share = 'ssh'
+    if DEBUG:
+        print('command =', subcommand)
+        print('share =', share)
     target_shares = parse_mount_file(share)
+    if DEBUG:
+        print('target =', target_shares)
+    if not target_shares:
+        raise SystemExit('share not found')
     active = []
     inactive = []
     for typ, params in target_shares:
         source, mount = params[0], params[-1]
         if mount.listdir():
-            active.append(mount)
+            active.append((typ, source, mount))
         else:
             inactive.append((typ, source, mount))
+    if DEBUG:
+        print('active = %s\ninactive = %s' % (active and '...', inactive and '...'))
     if subcommand == 'active':
         for typ, src, mnt in active:
             print('%5s: %-40s %-40s' % (typ, mnt, src))
@@ -264,11 +274,15 @@ def parse_mount_file(share):
     """
     return all matching entry for share
     """
+    if DEBUG:
+        print('parse_mount_file:')
     shares = []
     with open(fnxfs_mount) as data:
         mounts = data.readlines()
     for line in mounts:
         line = line.strip()
+        if DEBUG:
+            print('   ' + line)
         if not line:
             continue
         mount_point, options, source = line.split('\t')
@@ -312,6 +326,7 @@ def start_sshfs(source, mount):
             stdin=server_root+'\r\n',
             inherit_files=[STDOUT, STDERR],
             process_ids=openerp_ids,
+            init_groups=False,
             )
     d.start()
     result = ''
@@ -336,7 +351,7 @@ def stop_sshfs(mount):
     """
     unmounts an sshfs share and stop sshfs process
     """
-    command = ['/bin/fusermount', '-u', mount]
+    command = ['/usr/local/bin/fusermount', '-u', mount]
     output = Execute(command)
     result = ''
     if output.stdout:

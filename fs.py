@@ -53,6 +53,7 @@ FILE_TYPE = (
     )
 
 PERIOD_TYPE = (
+    ('hourly', 'Hourly'),
     ('daily', 'Daily'),
     ('weekly', 'Weekly'),
     ('monthly', 'Monthly'),
@@ -339,37 +340,77 @@ class fnx_fs_folder(osv.Model):
         if values.get('readonly_ids') or values.get('readwrite_ids'):
             write_permissions(self, cr)
         if values['folder_type'] != 'virtual':
-            if values['folder_type'] == 'shared':
-                sshfs_cmd = ['/usr/local/bin/fnxfs', 'sshfs', 'start', folder]
-                try:
-                    output = check_output(sshfs_cmd)
-                except Exception, exc:
-                    raise ERPError('Error','Unable to mount share:\n\ncommand: %s\n\nresult: %s' % (' '.join(sshfs_cmd), exc))
             write_mount(self, cr)
+            if values['folder_type'] == 'shared':
+                self.fnx_start_share(cr, uid, [new_id], context=context)
         return new_id
+
+    def fnx_start_share(self, cr, uid, ids, share_name=None, context=None):
+        if share_name is not None and not isinstance(ids, (int, long)) and len(ids) > 1:
+            raise ERPError('Programming Error', 'Cannot specify a share name and more than one record')
+        if isinstance(ids, (int, long)):
+            ids = [ids]
+        if share_name is not None:
+            share_names = [share_name]
+        else:
+            share_names = []
+            for share in self.browse(cr, uid, ids, context=context):
+                share_names.append(share.path)
+        for share_name in share_names:
+            share_cmd = ['/usr/local/bin/fnxfs', 'shares', 'start', share_name]
+            try:
+                output = check_output(share_cmd)
+            except Exception, exc:
+                _logger.exception('Unable to start share: %s', share_name)
+                return False
+        return True
+
+    def fnx_stop_share(self, cr, uid, ids, share_name=None, context=None):
+        if share_name is not None and not isinstance(ids, (int, long)) and len(ids) > 1:
+            raise ERPError('Programming Error', 'Cannot specify a share name and more than one record')
+        if isinstance(ids, (int, long)):
+            ids = [ids]
+        if share_name is not None:
+            share_names = [share_name]
+        else:
+            share_names = []
+            for share in self.browse(cr, uid, ids, context=context):
+                share_names.append(share.path)
+        for share_name in share_names:
+            share_cmd = ['/usr/local/bin/fnxfs', 'shares', 'stop', share_name]
+            _logger.info('%s', ' '.join(share_cmd))
+            try:
+                output = check_output(share_cmd)
+            except Exception, exc:
+                _logger.exception('Unable to stop share: %s', share_name)
+                return False
+        return True
 
     def write(self, cr, uid, ids, values, context=None):
         if ids:
             if isinstance(ids, (int, long)):
                 ids = [ids]
-            records = self.browse(cr, uid, ids, context=context)
-            for rec in records:
-                parent_id = values.get('parent_id', rec.parent_id.id)
-                name = values.get('name', rec.name)
-                new_path = self._get_path(cr, uid, parent_id, name, id=rec.id, context=context)
+            for folder in self.browse(cr, uid, ids, context=context):
+                parent_id = values.get('parent_id', folder.parent_id.id)
+                name = values.get('name', folder.name)
+                new_path = self._get_path(cr, uid, parent_id, name, id=folder.id, context=context)
                 if 'folder_type' in values:
                     raise ERPError('Not Implemented', 'Cannot change the folder type.')
                 if 'parent_id' in values or 'name' in values:
                     # TODO: unmount before and mount afterwards the non-virtual folders
-                    old_path = self._get_path(cr, uid, rec.parent_id.id, rec.name, context=context)
+                    old_path = self._get_path(cr, uid, folder.parent_id.id, folder.name, context=context)
                     old = old_path.exists()
                     new = new_path.exists()
                     if old and new:
                         raise ERPError('Error', '%r already exists.' % new_path)
-                    elif old and not new:
+                    if folder.folder_type != 'virtual':
+                        folder.fnx_stop_share()
+                    if old and not new:
                         old_path.move(new_path)
                     elif not new:
                         new_path.mkdir()
+                    if folder.folder_type != 'virtual':
+                        folder.fnx_start_share()
                 if 'description' in values:
                     with open(new_path/'README', 'w') as readme:
                         readme.write(values['description'] or '')
@@ -388,6 +429,7 @@ class fnx_fs_folder(osv.Model):
         to_be_unmounted = []
         folders = self.browse(cr, uid, ids, context=context)
         for folder in folders:
+            # TODO: check for files and issue nice error message
             path = self._get_path(cr, uid, folder.parent_id.id, folder.name, context=context)
             if folder.folder_type == 'shared':
                 if user_level != 'manager' and folder.owner_id.id != uid:
@@ -405,15 +447,16 @@ class fnx_fs_folder(osv.Model):
                 raise ERPError('Programming Error', 'Unknown folder type: %s' % folder.folder_type)
         res = super(fnx_fs_folder, self).unlink(cr, uid, ids, context=context)
         if res:
+            write_permissions(self, cr)
             for fp in to_be_deleted:
                 if fp.exists():
                     fp.rmtree()
             for fp in to_be_unmounted:
-                try:
-                    output = check_output(['/usr/local/bin/fnxfs', 'sshfs', 'stop', fp])
-                except Exception, exc:
-                    raise ERPError('Error', 'Unable to unmount folder:\n\n%s' % (exc, ))
-            write_permissions(self, cr)
+                _logger.info('stopping share %s', fp)
+                if not self.fnx_stop_share(cr, uid, ids, share_name=(fp-fs_root), context=context):
+                    raise ERPError('Error', 'Unable to stop share "%s"' % (fp-fs_root))
+                _logger.info('removing mount point %s', fp)
+                fp.rmdir()
             write_mount(self, cr)
         return res
 
@@ -457,27 +500,76 @@ class fnx_fs_file(osv.Model):
     def fnx_fs_scheduled_publish(self, cr, uid, context=None):
         publishable_files = self.fnx_fs_publish_times(cr, uid, context=context)
         for rec in publishable_files:
-            if DateTime(rec.scheduled_at) > DateTime.now():
+            scheduled = DateTime(rec.scheduled_at)
+            now = DateTime.now()
+            if scheduled > now:
                 break
             self._get_remote_file(cr, uid, {},
                     owner_id=rec.user_id.id, file_path=rec.full_name, ip=rec.ip_addr,
                     shared_as=rec.shared_as, folder_id=rec.folder_id.id,
                     context=context)
+            if rec.schedule_period == 'hourly':
+                next_date = now.replace(
+                        delta_hour=1,
+                        minute=scheduled.minute,
+                        second=scheduled.second,
+                        microsecond=scheduled.microsecond,
+                        )
+                if float(next_date - now) > 1.25:
+                    # if wait is longer that 1 hour 15 minutes, bump it up
+                    next_date = next_date.replace(delta_hour=-1)
             if rec.schedule_period == 'daily':
-                next_date = Date.today().replace(delta_day=1).date()
-                self.write(cr, uid, [rec.id], {'schedule_date':next_date}, context=context)
+                next_date = now.replace(
+                        delta_day=1,
+                        hour=scheduled.hour,
+                        minute=scheduled.minute,
+                        second=scheduled.second,
+                        microsecond=scheduled.microsecond,
+                        )
+                if float(next_date - now) > 26:
+                    next_date = now.replace(delta_day=-1)
             elif rec.schedule_period == 'weekly':
-                scheduled_day = Weekday.from_date(rec.schedule_date)
+                scheduled_day = Weekday.from_date(scheduled)
                 today = Weekday.from_date(Date.today())
                 delta = today.next(scheduled_day)
-                next_date = Date.today().replace(delta_day=delta).date()
-                self.write(cr, uid, [rec.id], {'schedule_date':next_date}, context=context)
+                next_date = now.replace(
+                        delta_day=delta,
+                        hour=scheduled.hour,
+                        minute=scheduled.minute,
+                        second=scheduled.second,
+                        microsecond=scheduled.microsecond,
+                        )
+                if float(next_date - now) > 170:
+                    next_date = next_date.replace(delta_day=-7)
             elif rec.schedule_period == 'monthly':
-                if rec.schedule_date.day >= 28:
-                    next_date = Date(rec.schedule_date).replace(delta_month=2, day=1).replace(delta_day=-1).date()
+                if scheduled.day >= 28:
+                    if now.day < 28:
+                        next_date = scheduled.replace(month=now.month)
+                    else:
+                        next_date = now.replace(
+                                delta_month=2,
+                                day=1).replace(
+                                        delta_day=-1,
+                                        hour=scheduled.hour,
+                                        minute=scheduled.minute,
+                                        second=scheduled.second,
+                                        microsecond=scheduled.microsecond,
+                                        )
                 else:
-                    next_date = Date(rec.schedule_date).replace(delta_month=1).date()
-                self.write(cr, uid, [rec.id], {'schedule_date':next_date}, context=context)
+                    if now.day < scheduled.day:
+                        # ran because system was down and playng catch-up
+                        # run again this month at the normal time
+                        next_date = scheduled.replace( month=now.month)
+                    else:
+                        next_date = now.replace(
+                                delta_month=1,
+                                day=scheduled.day,
+                                hour=scheduled.hour,
+                                minute=scheduled.minute,
+                                second=scheduled.second,
+                                microsecond=scheduled.microsecond,
+                                )
+            self.write(cr, uid, [rec.id], {'schedule_date':next_date}, context=context)
         return True        
 
     def _calc_scheduled_at(self, cr, uid, ids, _field=None, _arg=None, context=None):
@@ -631,16 +723,9 @@ class fnx_fs_file(osv.Model):
         'indexed_text': fields.text('Indexed content (TBI)'),
         'notes': fields.text('Notes'),
         'schedule_period': fields.selection(PERIOD_TYPE, 'Frequency'),
-        'schedule_date': fields.date('Next publish date'),
-        'schedule_time': fields.float('Next publish time'),
-        'scheduled_at': fields.function(
-            _calc_scheduled_at,
-            type='datetime',
-            string='Scheduled Date/Time',
-            store={
-                'fnx.fs.file': (_calc_scheduled_at, ['schedule_date', 'schedule_time'], 10),
-                },
-            ),
+        #'schedule_date': fields.date('Next publish date'),
+        #'schedule_time': fields.float('Next publish time'),
+        'scheduled_at': fields.datetime('Next publishing at'),
         }
 
     _sql_constraints = [
@@ -659,25 +744,26 @@ class fnx_fs_file(osv.Model):
         folder = self.pool.get('fnx.fs.folder').browse(cr, uid, values['folder_id'], context=context)
         if folder.folder_type != 'virtual':
             raise ERPError('Invalid Folder', 'Files can only be saved into Virtual folders')
-        if values['perm_type'] == 'inherit':
-            values.pop('readonly_ids', None)
-            values['readwrite_ids'] = [uid]
-        if not values.get('shared_as'):
-            values['shared_as'] = values['file_name']
-        shared_as = Path(values['shared_as'])
-        if values['file_type'] == 'normal':
+        vals = PropertyDict(values)
+        if vals.perm_type == 'inherit':
+            vals.pop('readonly_ids', None)
+            vals.readwrite_ids = [uid]
+        if not vals.get('shared_as'):
+            vals.shared_as = vals.file_name
+        shared_as = Path(vals.shared_as)
+        if vals.file_name:
+            vals.ip_addr = context['__client_address__']
+            source_file = Path(vals.file_name)
+            if shared_as.ext != '.' and shared_as.ext != source_file.ext:
+                vals.shared_as = shared_as + source_file.ext
+            self._get_remote_file(cr, uid, vals, context=context)
+        elif vals.file_type == 'normal':
             if not shared_as.ext:
                 raise ERPError('Error', 'Shared name should have an extension indicating file type.')
-        else:
-            values['ip_addr'] = context['__client_address__']
-            source_file = Path(values['file_name'])
-            if shared_as.ext != '.' and shared_as.ext != source_file.ext:
-                values['shared_as'] = shared_as + source_file.ext
-            self._get_remote_file(cr, uid, values, context=context)
-        new_id = super(fnx_fs_file, self).create(cr, uid, values, context=context)
+        new_id = super(fnx_fs_file, self).create(cr, uid, dict(vals), context=context)
         write_permissions(self, cr)
         current = self.browse(cr, uid, new_id)
-        if values['file_type'] == 'normal':
+        if vals.file_type == 'normal' and not vals.file_name:
             open(fs_root/current.folder_id.path/current.shared_as, 'w').close()
         return new_id
 
@@ -689,14 +775,18 @@ class fnx_fs_file(osv.Model):
         to_be_deleted = []
         records = self.browse(cr, uid, ids, context=context)
         for rec in records:
-            full_name = fs_root / rec.folder_id.name / rec.shared_as
+            full_name = fs_root / rec.folder_id.path / rec.shared_as
             to_be_deleted.append(full_name)
+            _logger.info('file to be deleted: %s', full_name)
         res = super(fnx_fs_file, self).unlink(cr, uid, ids, context=context)
         write_permissions(self, cr)
         if res and not context.get('keep_files', False):
             for fn in to_be_deleted:
+                _logger.info('deleting file: %s', fn)
                 if fn.exists():
                     fn.unlink()
+                else:
+                    _logger.info('file already deleted?')
         return res
 
     def write(self, cr, uid, ids, values, context=None):

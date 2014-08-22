@@ -1,4 +1,4 @@
-from fnx import check_company_settings, get_user_login, get_user_timezone, DateTime, Time, Date, float, Weekday
+from fnx import check_company_settings, get_user_login, get_user_timezone, DateTime, Time, Date, float, Weekday, PropertyDict
 from fnx.path import Path
 from fnx.utils import xml_quote, xml_unquote
 from openerp import SUPERUSER_ID as SUPERUSER
@@ -31,8 +31,8 @@ mount_file = Path('/etc/openerp/fnxfs.mount')
 execfile('/etc/openerp/fnxfs_credentials')
 
 PERMISSIONS_TYPE = (
-    ('inherit', 'Inherited from Folder'),
-    ('custom', 'Custom settings for this File'),
+    ('inherit', 'Inherited from parent folder'),
+    ('custom', 'Custom'),
     )
 
 READONLY_TYPE = (
@@ -123,27 +123,33 @@ def write_permissions(oe, cr):
     # 
     fnxfs_folder = oe.pool.get('fnx.fs.folder')
     fnxfs_file = oe.pool.get('fnx.fs.file')
+    res_users = oe.pool.get('res.users')
     with permissions_lock:
         ids = []
         mode = 'w'
-        folders = fnxfs_folder.browse(cr, SUPERUSER, fnxfs_folder.search(cr, SUPERUSER, []))
-        files = fnxfs_file.browse(cr, SUPERUSER, fnxfs_file.search(cr, SUPERUSER, []))
+        folders = fnxfs_folder.browse(cr, SUPERUSER)
+        files = fnxfs_file.browse(cr, SUPERUSER)
+        fnx_fs_users = [u.login for u in res_users.browse(cr, SUPERUSER, [('groups_id.category_id.name','=','FnxFS')])]
         lines = []
         root = Path('/')
         for folder in folders:
             read_write = set()
-            if folder.readonly_type == 'selected' and not folder.readonly_ids and not folder.readwrite_ids:
-                # no global settings for this folder
-                continue
-            for user in (folder.readwrite_ids or []):
+            perm_folder = folder
+            while perm_folder.perm_type != 'custom':
+                # search parents until 'custom' found
+                perm_folder = folder.parent_id
+            # default is deny all
+            lines.append('all:none:%s/*' % (root/folder.path))
+            if perm_folder.readonly_type == 'all':
+                lines.append('all:read:%s/*' % (root/folder.path))
+            elif perm_folder.readonly_type != 'selected':
+                raise ERPError('Programming Error', 'unknown readonly type: %r' % perm_folder.readonly_type)
+            for user in (perm_folder.readwrite_ids or []):
                 read_write.add(user.id)
                 lines.append('%s:write:%s/*' % (user.login, root/folder.path))
-            if folder.readonly_type == 'all':
-                lines.append('all:read:%s/*' % (root/folder.path))
-            elif folder.readonly_ids:
-                for user in folder.readonly_ids:
-                    if user.id not in read_write:
-                        lines.append('%s:read:%s/*' % (user.login, root/folder.path))
+            for user in perm_folder.readonly_ids:
+                if user.id not in read_write:
+                    lines.append('%s:read:%s/*' % (user.login, root/folder.path))
         for file in files:
             if file.perm_type == 'inherit':
                 continue
@@ -163,6 +169,7 @@ def write_permissions(oe, cr):
                     if user.id not in read_write:
                         lines.append('%s:read:%s' % (user.login, path))
         with open(permissions_file, mode) as data:
+            data.write(','.join(fnx_fs_users) + '\n')
             data.write('\n'.join(lines) + '\n')
 
 
@@ -170,6 +177,18 @@ class fnx_fs_folder(osv.Model):
     '''
     virtual folders for shared files to appear in
     '''
+
+    def change_permissions(self, cr, uid, ids, perm_type, parent_id, called_from):
+        res = {}
+        if called_from == 'folder' and perm_type == 'custom' or not parent_id:
+            return res
+        # assuming only one id
+        parent_folder = self.browse(cr, uid, parent_id)
+        value = res['value'] = {}
+        value['readonly_type'] = parent_folder.readonly_type
+        value['readonly_ids'] = [rec.id for rec in parent_folder.readonly_ids]
+        value['readwrite_ids'] = [rec.id for rec in parent_folder.readwrite_ids]
+        return res
 
     def _construct_path(self, cr, uid, ids, field_name, arg, context=None):
         if isinstance(ids, (int, long)):
@@ -268,6 +287,11 @@ class fnx_fs_folder(osv.Model):
             'parent_id',
             'Sub-Folders',
             ),
+        'perm_type': fields.selection(
+            PERMISSIONS_TYPE,
+            'Permissions type',
+            required=True
+            ),
         'readonly_type': fields.selection(
             READONLY_TYPE,
             'Read-Only Users',
@@ -299,19 +323,23 @@ class fnx_fs_folder(osv.Model):
             'res.users',
             'Share Owner',
             domain="[('groups_id.category_id.name','=','FnxFS')]",
+            required=True,
             ),
         }
     _sql_constraints = [
         ('folder_uniq', 'unique(name)', 'Folder already exists in system.'),
         ]
     _defaults = {
-        'readonly_type': lambda s, c, u, ctx=None: 'selected',
+        'readonly_type': lambda *a: 'selected',
         'folder_type': _get_default_folder_type,
-        'mount_options': lambda s, c, u, ctx=None: '-t cifs',
+        'mount_options': lambda *a: '-t cifs',
         'owner_id': lambda s, c, u, ctx=None: u != 1 and u or '',
+        'perm_type': lambda *a: 'custom',
         }
 
     def create(self, cr, uid, values, context=None):
+        if '/' in values['name']:
+            raise ERPError('Error', 'Cannot have "/" in the folder name.')
         parent_id = values.get('parent_id')
         if parent_id:
             parent_folder = self.browse(cr, uid, parent_id, context=context)
@@ -387,6 +415,9 @@ class fnx_fs_folder(osv.Model):
         return True
 
     def write(self, cr, uid, ids, values, context=None):
+        if 'name' in values and '/' in values['name']:
+            raise ERPError('Error', 'Cannot have "/" in the folder name.')
+        remount = []
         if ids:
             if isinstance(ids, (int, long)):
                 ids = [ids]
@@ -410,15 +441,18 @@ class fnx_fs_folder(osv.Model):
                     elif not new:
                         new_path.mkdir()
                     if folder.folder_type != 'virtual':
-                        folder.fnx_start_share()
+                        remount.append(folder)
                 if 'description' in values:
                     with open(new_path/'README', 'w') as readme:
                         readme.write(values['description'] or '')
         res = super(fnx_fs_folder, self).write(cr, uid, ids, values, context=context)
         if values.get('readonly_type') is not None or values.get('readonly_ids') or values.get('readwrite_ids'):
             write_permissions(self, cr)
-        if values.get('mount_from') or values.get('mount_options'):
+        if values.get('mount_from') or values.get('mount_options') or remount:
             write_mount(self, cr)
+        for folder in remount:
+            folder.refresh()
+            folder.fnx_start_share()
         return res
 
     def unlink(self, cr, uid, ids, context=None):
@@ -832,3 +866,4 @@ class fnx_fs_file(osv.Model):
         write_permissions(self, cr)
         return success
 fnx_fs_file()
+

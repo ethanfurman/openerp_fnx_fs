@@ -1,4 +1,4 @@
-#!/usr/local/bin/python
+#!/usr/bin/python
 
 from __future__ import print_function
 
@@ -47,12 +47,12 @@ OE = PropertyDict()
 sshfs_options = [
         #'-f',
         '-o','allow_root',
-        '-o','kernel_cache',
+        #'-o','kernel_cache',
         '-o','StrictHostKeyChecking=no',
         '-o','password_stdin',
         '-o','reconnect',
         '-o','compression=no',
-        '-o','cache_timeout=600',
+        '-o','cache_timeout=0',
         '-o','ServerAliveInterval=5',
         '-o','workaround=rename',
         ]

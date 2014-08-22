@@ -27,13 +27,13 @@
                             <field name="name"/>
                             <field name="path"/>
                             <field name="description"/>
-                            <field name="parent_id" on_change="change_permissions(perm_type, parent_id, 'folder')"/>
+                            <field name="parent_id" on_change="change_permissions(perm_type, parent_id, 'folder')" options="{'create':False, 'create_edit':False, 'limit':15}"/>
                         </group>
                         <group>
                             <field name="folder_type"/>
                             <field name="mount_from" attrs="{'invisible':[('folder_type','!=','reflective')], 'required':[('folder_type','=','reflective')]}"/>
                             <field name="mount_options" attrs="{'invisible':[('folder_type','!=','reflective')]}"/>
-                            <field name="owner_id" readwrite="groups('fnx_fs.manager')" attrs="{'invisible':[('folder_type','!=','shared')], 'required':[('folder_type','=','shared')]}"/>
+                            <field name="share_owner_id" readwrite="groups('fnx_fs.manager')" attrs="{'invisible':[('folder_type','!=','shared')], 'required':[('folder_type','=','shared')]}" options="{'create':False, 'create_edit':False, 'limit':15}"/>
                             <field name="file_folder_name" string="Shared Folder" attrs="{'invisible':[('folder_type','!=','shared')], 'required':[('folder_type','=','shared')]}"/>
                         </group>
                     </group>
@@ -50,7 +50,7 @@
                         </group>
                         <group>
                             <field name="readonly_type"/>
-                            <field name="readonly_ids" nolabel="1" attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2">
+                            <field name="readonly_ids" nolabel="1" attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2" options="{'create':False, 'create_edit':False, 'limit':15}">
                                 <tree>
                                     <field name="name" string="Read Only Users"/>
                                 </tree>
@@ -59,7 +59,7 @@
                         <group>
                             <separator attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2"/>
                             <separator attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2"/>
-                            <field name="readwrite_ids" nolabel="1" colspan="2">
+                            <field name="readwrite_ids" nolabel="1" colspan="2" options="{'create':False, 'create_edit':False, 'limit':15}">
                                 <tree>
                                     <field name="name" string="Read/Write Users"/>
                                 </tree>
@@ -104,8 +104,8 @@
                     <sheet string="Files">
                         <group>
                             <group>
-                                <field name="user_id" readwrite="groups('fnx_fs.manager')" widget="selection" options="{'create':False, 'create_edit':False, 'limit':15}"/>
-                                <field name="file_type"/>
+                                <field name="user_id" readwrite="groups('fnx_fs.manager')" required="1" options="{'create':False, 'create_edit':False, 'limit':15}"/>
+                                <field name="file_type" on_change="change_file_type(file_type)"/>
                                 <field name="folder_id" on_change="change_permissions(perm_type, folder_id, 'folder')"/>
                                 <field name="shared_as" attrs="{'required':[('file_type','=','normal')]}"/>
                             </group>
@@ -128,7 +128,7 @@
                             <group colspan="2">
                                 <group>
                                     <field name="readonly_type" attrs="{'readonly':[('perm_type','=','inherit')]}"/>
-                                    <field name="readonly_ids"  attrs="{'readonly':[('perm_type','=','inherit')], 'invisible':[('readonly_type','=','all')]}" nolabel="1" colspan="2">
+                                    <field name="readonly_ids"  attrs="{'readonly':[('perm_type','=','inherit')], 'invisible':[('readonly_type','=','all')]}" nolabel="1" colspan="2" options="{'create':False, 'create_edit':False, 'limit':15}">
                                         <tree>
                                             <field name="name" string="Read Only Users"/>
                                         </tree>
@@ -137,7 +137,7 @@
                                 <group>
                                     <separator attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2"/>
                                     <separator attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2"/>
-                                    <field name="readwrite_ids" nolabel="1" colspan="2" attrs="{'readonly':[('perm_type','=','inherit')]}">
+                                    <field name="readwrite_ids" nolabel="1" colspan="2" attrs="{'readonly':[('perm_type','=','inherit')]}" options="{'create':False, 'create_edit':False, 'limit':15}">
                                         <tree>
                                             <field name="name" string="Read/Write Users"/>
                                         </tree>

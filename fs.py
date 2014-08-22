@@ -49,7 +49,7 @@ FOLDER_TYPE = (
 FILE_TYPE = (
     ('auto', 'Auto-Publish'),   # OpenERP cron job updates the file
     ('manual', 'Publish'),      # user manually updates the file
-    ('normal', 'Read/Write'),   # normal FS usage
+    ('normal', 'Collaborative'),   # normal FS usage
     )
 
 PERIOD_TYPE = (
@@ -133,7 +133,7 @@ def write_permissions(oe, cr):
         lines = []
         root = Path('/')
         for folder in folders:
-            read_write = set()
+            seen = set()
             perm_folder = folder
             while perm_folder.perm_type != 'custom':
                 # search parents until 'custom' found
@@ -145,11 +145,13 @@ def write_permissions(oe, cr):
             elif perm_folder.readonly_type != 'selected':
                 raise ERPError('Programming Error', 'unknown readonly type: %r' % perm_folder.readonly_type)
             for user in (perm_folder.readwrite_ids or []):
-                read_write.add(user.id)
+                seen.add(user.id)
                 lines.append('%s:write:%s/*' % (user.login, root/folder.path))
             for user in perm_folder.readonly_ids:
-                if user.id not in read_write:
+                if user.id not in seen:
                     lines.append('%s:read:%s/*' % (user.login, root/folder.path))
+            if folder.share_owner_id not in seen and folder.share_owner_id.login != 'openerp':
+                lines.append('%s:read:%s/*' % (folder.share_owner_id.login, root/folder.path))
         for file in files:
             if file.perm_type == 'inherit':
                 continue
@@ -302,7 +304,7 @@ class fnx_fs_folder(osv.Model):
             'fid',
             'uid',
             'Read Only Access',
-            domain="[('groups_id.category_id.name','=','FnxFS')]",
+            domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1),('login','!=','openerp']",
             ),
         'readwrite_ids': fields.many2many(
             'res.users',
@@ -310,7 +312,7 @@ class fnx_fs_folder(osv.Model):
             'fid',
             'uid',
             'Read/Write Access',
-            domain="[('groups_id.category_id.name','=','FnxFS')]",
+            domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1),('login','!=','openerp']",
             ),
         'folder_type': fields.selection(
             FOLDER_TYPE,
@@ -319,10 +321,10 @@ class fnx_fs_folder(osv.Model):
         'mount_from': fields.char('Mirrored from', size=256),
         'mount_options': fields.char('Mount options', size=64),
         'file_folder_name': fields.binaryname('File in Folder', type='char', size=256),
-        'owner_id': fields.many2one(
+        'share_owner_id': fields.many2one(
             'res.users',
             'Share Owner',
-            domain="[('groups_id.category_id.name','=','FnxFS')]",
+            domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1),('login','!=','openerp']",
             required=True,
             ),
         }
@@ -333,7 +335,7 @@ class fnx_fs_folder(osv.Model):
         'readonly_type': lambda *a: 'selected',
         'folder_type': _get_default_folder_type,
         'mount_options': lambda *a: '-t cifs',
-        'owner_id': lambda s, c, u, ctx=None: u != 1 and u or '',
+        'share_owner_id': lambda s, c, u, ctx=None: u != 1 and u or '',
         'perm_type': lambda *a: 'custom',
         }
 
@@ -466,8 +468,8 @@ class fnx_fs_folder(osv.Model):
             # TODO: check for files and issue nice error message
             path = self._get_path(cr, uid, folder.parent_id.id, folder.name, context=context)
             if folder.folder_type == 'shared':
-                if user_level != 'manager' and folder.owner_id.id != uid:
-                    raise ERPError('Error', 'Only %s or a manager can delete this share' % folder.owner_id.name)
+                if user_level != 'manager' and folder.share_owner_id.id != uid:
+                    raise ERPError('Error', 'Only %s or a manager can delete this share' % folder.share_owner_id.name)
                 to_be_unmounted.append(path)
             elif folder.folder_type == 'reflective':
                 if user_level != 'manager':
@@ -680,6 +682,15 @@ class fnx_fs_file(osv.Model):
             except Exception, exc:
                 raise ERPError('Error','Unable to archive file:\n\n%s' % (exc, ))
 
+    def change_file_type(self, cr, uid, ids, file_type):
+        res = {}
+        res['value'] = values = {}
+        if file_type == 'normal':
+            values['user_id'] = self.pool.get('res.users').browse(cr, uid, [('login','=','openerp')])[0].id
+        else:
+            values['user_id'] = ''
+        return res
+
     def change_permissions(self, cr, uid, ids, perm_type, folder_id, called_from):
         res = {}
         if called_from == 'folder' and perm_type == 'custom' or not folder_id:
@@ -701,6 +712,7 @@ class fnx_fs_file(osv.Model):
             'res.users',
             'Owner',
             ondelete='set null',
+            domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1)]",
             ),
         'perm_type': fields.selection(
             PERMISSIONS_TYPE,
@@ -717,7 +729,7 @@ class fnx_fs_file(osv.Model):
             'fid',
             'uid',
             'Read Only Access',
-            domain="[('groups_id.category_id.name','=','FnxFS')]",
+            domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1),('login','!=','openerp']",
             ),
         'readwrite_ids': fields.many2many(
             'res.users',
@@ -725,7 +737,7 @@ class fnx_fs_file(osv.Model):
             'fid',
             'uid',
             'Read/Write Access',
-            domain="[('groups_id.category_id.name','=','FnxFS')]",
+            domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1),('login','!=','openerp']",
             ),
         'folder_id': fields.many2one(
             'fnx.fs.folder',
@@ -767,7 +779,7 @@ class fnx_fs_file(osv.Model):
             ('shareas_uniq', 'unique(shared_as)', 'Shared As name already exists in system.'),
             ]
     _defaults = {
-        'user_id': lambda s, c, u, ctx={}: u,
+        'user_id': lambda s, c, u, ctx={}: u != 1 and u or '',
         'perm_type': lambda *a: 'inherit',
         'readwrite_ids': lambda s, c, u, ctx={}: [u],
         'readonly_type': lambda *a: 'all',

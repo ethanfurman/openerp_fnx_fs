@@ -23,10 +23,11 @@
                 <form string="Folders" version="7.0">
                     <group>
                         <group>
+                            <field name="id" invisible="1"/>
                             <field name="name"/>
                             <field name="path"/>
                             <field name="description"/>
-                            <field name="parent_id"/>
+                            <field name="parent_id" on_change="change_permissions(perm_type, parent_id, 'folder')"/>
                         </group>
                         <group>
                             <field name="folder_type"/>
@@ -36,11 +37,17 @@
                             <field name="file_folder_name" string="Shared Folder" attrs="{'invisible':[('folder_type','!=','shared')], 'required':[('folder_type','=','shared')]}"/>
                         </group>
                     </group>
-                    <group>
-                        <field name="child_ids"/>
+                    <group attrs="{'invisible':[('id','=',False)]}">
+                        <field name="child_ids" context="{'default_parent_id':active_id}"/>
                     </group>
                     <separator string="Default File Settings"/>
                     <group colspan="2">
+                        <group>
+                            <field name="perm_type" on_change="change_permissions(perm_type, parent_id, 'perm')" attrs="{'invisible':[('parent_id','=',False)]}"/>
+                        </group>
+                        <group>
+                            <separatory colspan="2"/>
+                        </group>
                         <group>
                             <field name="readonly_type"/>
                             <field name="readonly_ids" nolabel="1" attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2">
@@ -60,8 +67,8 @@
                         </group>
                     </group>
                     <notebook colspan="4">
-                        <page string="Files" attrs="{'invisible':[('folder_type','!=','virtual')]}">
-                            <field name="file_ids" nolabel="1">
+                        <page string="Files" attrs="{'invisible':[('id','=',False)]}">
+                            <field name="file_ids" nolabel="1" context="{'default_folder_id':active_id}">
                                 <tree version="7.0" context="{'default_folder_id':folder_id}">
                                     <field name="shared_as" string="Share Name"/>
                                     <field name="user_id"/>

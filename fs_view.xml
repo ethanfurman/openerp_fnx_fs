@@ -50,7 +50,7 @@
                         </group>
                         <group>
                             <field name="readonly_type"/>
-                            <field name="readonly_ids" nolabel="1" attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2" options="{'create':False, 'create_edit':False, 'limit':15}">
+                            <field name="readonly_ids" nolabel="1" attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2">
                                 <tree>
                                     <field name="name" string="Read Only Users"/>
                                 </tree>
@@ -59,7 +59,7 @@
                         <group>
                             <separator attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2"/>
                             <separator attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2"/>
-                            <field name="readwrite_ids" nolabel="1" colspan="2" options="{'create':False, 'create_edit':False, 'limit':15}">
+                            <field name="readwrite_ids" nolabel="1" colspan="2">
                                 <tree>
                                     <field name="name" string="Read/Write Users"/>
                                 </tree>

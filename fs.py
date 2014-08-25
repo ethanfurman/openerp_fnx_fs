@@ -180,12 +180,12 @@ class fnx_fs_folder(osv.Model):
     virtual folders for shared files to appear in
     '''
 
-    def change_permissions(self, cr, uid, ids, perm_type, parent_id, called_from):
+    def change_permissions(self, cr, uid, ids, perm_type, parent_id, called_from, context=None):
         res = {}
         if called_from == 'folder' and perm_type == 'custom' or not parent_id:
             return res
         # assuming only one id
-        parent_folder = self.browse(cr, uid, parent_id)
+        parent_folder = self.browse(cr, uid, parent_id, context=context)
         value = res['value'] = {}
         value['readonly_type'] = parent_folder.readonly_type
         value['readonly_ids'] = [rec.id for rec in parent_folder.readonly_ids]
@@ -225,7 +225,7 @@ class fnx_fs_folder(osv.Model):
             folder /= path.pop()
         return folder
 
-    def _get_remote_path(self, cr, uid, file_name, context):
+    def _get_remote_path(self, cr, uid, file_name, context=None):
         if uid == SUPERUSER:
             raise ERPError('Not Implemented', 'Only normal users can create user shares')
         uid = context.get('uid')
@@ -304,7 +304,7 @@ class fnx_fs_folder(osv.Model):
             'fid',
             'uid',
             'Read Only Access',
-            domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1),('login','!=','openerp']",
+            domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1),('login','!=','openerp')]",
             ),
         'readwrite_ids': fields.many2many(
             'res.users',
@@ -312,7 +312,7 @@ class fnx_fs_folder(osv.Model):
             'fid',
             'uid',
             'Read/Write Access',
-            domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1),('login','!=','openerp']",
+            domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1),('login','!=','openerp')]",
             ),
         'folder_type': fields.selection(
             FOLDER_TYPE,
@@ -324,7 +324,7 @@ class fnx_fs_folder(osv.Model):
         'share_owner_id': fields.many2one(
             'res.users',
             'Share Owner',
-            domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1),('login','!=','openerp']",
+            domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1),('login','!=','openerp')]",
             required=True,
             ),
         }
@@ -507,7 +507,7 @@ class fnx_fs_file(osv.Model):
 
     copy_lock = threading.Lock()
 
-    def fnx_fs_publish_file(self, cr, uid, ids, context):
+    def fnx_fs_publish_file(self, cr, uid, ids, context=None):
         if isinstance(ids, (int, long)):
             ids = [ids]
         res_users = self.pool.get('res.users')
@@ -682,21 +682,21 @@ class fnx_fs_file(osv.Model):
             except Exception, exc:
                 raise ERPError('Error','Unable to archive file:\n\n%s' % (exc, ))
 
-    def change_file_type(self, cr, uid, ids, file_type):
+    def change_file_type(self, cr, uid, ids, file_type, context=None):
         res = {}
         res['value'] = values = {}
         if file_type == 'normal':
-            values['user_id'] = self.pool.get('res.users').browse(cr, uid, [('login','=','openerp')])[0].id
+            values['user_id'] = self.pool.get('res.users').browse(cr, uid, [('login','=','openerp')], context=context)[0].id
         else:
             values['user_id'] = ''
         return res
 
-    def change_permissions(self, cr, uid, ids, perm_type, folder_id, called_from):
+    def change_permissions(self, cr, uid, ids, perm_type, folder_id, called_from, context=None):
         res = {}
         if called_from == 'folder' and perm_type == 'custom' or not folder_id:
             return res
         # assuming only one id
-        folder = self.pool.get('fnx.fs.folder').browse(cr, uid, folder_id)
+        folder = self.pool.get('fnx.fs.folder').browse(cr, uid, folder_id, context=context)
         value = res['value'] = {}
         value['readonly_type'] = folder.readonly_type
         value['readonly_ids'] = [rec.id for rec in folder.readonly_ids]
@@ -729,7 +729,7 @@ class fnx_fs_file(osv.Model):
             'fid',
             'uid',
             'Read Only Access',
-            domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1),('login','!=','openerp']",
+            domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1),('login','!=','openerp')]",
             ),
         'readwrite_ids': fields.many2many(
             'res.users',
@@ -737,7 +737,7 @@ class fnx_fs_file(osv.Model):
             'fid',
             'uid',
             'Read/Write Access',
-            domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1),('login','!=','openerp']",
+            domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1),('login','!=','openerp')]",
             ),
         'folder_id': fields.many2one(
             'fnx.fs.folder',

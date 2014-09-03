@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/local/bin/suid-python
 
 from __future__ import print_function
 
@@ -10,6 +10,7 @@ from getpass import getpass
 from pandaemonium import Daemon, PidLockFile, FileTracker, STDOUT, STDERR
 from path import Path
 from scription import Script, Command, REQUIRED, FLAG, OPTION, Run, Execute
+from subprocess import check_output, CalledProcessError, Popen, PIPE, STDOUT
 from VSS.time_machine import PropertyDict
 import errno
 import logging
@@ -20,6 +21,8 @@ import sys
 import time
 
 openerp_ids = tuple(pwd.getpwnam('openerp')[2:4])
+
+
 log_file = Path('/var/log/openerp/sshfs.log')
 open(log_file, 'w').close()
 log_file.chown(*openerp_ids)
@@ -214,8 +217,17 @@ def copy_usershares(folder):
         )
 def shares(subcommand='', share=''):
     """
-    start any unstarted sshfs mounts
+    work with FnxFS mounts
     """
+    # we support two different types of mounts: smb and sshfs
+    # the smb (un)mount must be done with uid of root
+    # the sshfs unmount must be done with uid of root
+    # the sshfs mount must be done with uid of openerp
+    if DEBUG:
+        print(' uid =', os.getuid())
+        print('euid =', os.geteuid())
+        print(' gid =', os.getgid())
+        print('egid =', os.getegid())
     if not share :
         if subcommand in ('active', 'inactive'):
             share = 'all'
@@ -229,46 +241,45 @@ def shares(subcommand='', share=''):
         print('target =', target_shares)
     if not target_shares:
         raise SystemExit('share not found')
-    active = []
-    inactive = []
+    active = PropertyDict(default=dict)
+    inactive = PropertyDict(default=dict)
+    shares = {}
     for typ, params in target_shares:
         source, mount = params[0], params[-1]
         if mount.listdir():
-            active.append((typ, source, mount))
+            active[typ][mount] = source
         else:
-            inactive.append((typ, source, mount))
+            inactive[typ][mount] = source
+        shares[mount] = params
     if DEBUG:
-        print('active = %s\ninactive = %s' % (active and '...', inactive and '...'))
+        print('active = %s\ninactive = %s' % (active , inactive))
     if subcommand == 'active':
-        for typ, src, mnt in active:
-            print('%5s: %-40s %-40s' % (typ, mnt, src))
+        for typ in ('smb', 'ssh'):
+            for mnt, src in sorted(active[typ].items()):
+                print('%5s: %-40s %-40s' % (typ, mnt, src))
     if subcommand == 'inactive':
-        for typ, src, mnt in inactive:
-            print('%5s: %-40s %-40s' % (typ, mnt, src))
-    if subcommand in ('restart', 'stop'):
-        for typ, params in target_shares:
-            if typ == 'ssh':
-                source, mount = params
-                print('stopping ', mount, '. . . ', end='')
-                print(stop_sshfs(mount))
-            elif typ == 'ip':
-                source, options, mount = params
-                print('stopping ', mount, '. . . ', end='')
-                print(stop_smb(mount))
-            else:
-                raise ValueError('unknown share type: %s' % typ)
-    if subcommand in ('restart', 'start'):
-        for typ, params in target_shares:
-            if typ == 'ssh':
-                source, mount = params
-                print('starting ', mount, '. . . ', end='')
-                print(start_sshfs(source, mount))
-            elif typ == 'ip':
-                source, options, mount = params
-                print('starting ', mount, '. . . ', end='')
-                print(start_smb(source, options, mount))
-            else:
-                raise ValueError('unknown share type: %s' % typ)
+        for typ in ('smb', 'ssh'):
+            for mnt, src in sorted(inactive[typ].items()):
+                print('%5s: %-40s %-40s' % (typ, mnt, src))
+    for typ, stop_cmd, start_cmd in (('smb', stop_smb, start_smb), ('ssh', stop_sshfs, start_sshfs)):
+        if subcommand in ('restart', 'stop'):
+            for mnt in sorted(shares.keys()):
+                if mnt in active[typ]:
+                    print('stopping ', mnt, '. . . ', end='')
+                    print(stop_cmd(mnt))
+                    inactive[typ][mnt] = active[typ].pop(mnt)
+                elif mnt in inactive[typ]:
+                    print('%s already stopped' % mnt)
+        if subcommand in ('restart', 'start'):
+            if os.getuid() == 0 and typ == 'ssh':
+                os.initgroups('openerp', openerp_ids[1])
+                os.setuid(openerp_ids[0])
+            for mnt in sorted(shares.keys()):
+                if mnt in inactive[typ]:
+                    print('starting ', mnt, '. . . ', end='')
+                    print(start_cmd(*shares[mnt]))
+                elif mnt in active[typ]:
+                    print('%s already started' % mnt)
 
 def parse_mount_file(share):
     """
@@ -298,7 +309,7 @@ def parse_mount_file(share):
                 if options == 'ssh':
                     shares.append(('ssh', (source, Path(mount_point))))
                 else:
-                    shares.append(('ip', (source, options, Path(mount_point))))
+                    shares.append(('smb', (source, options, Path(mount_point))))
     return shares
 
 def start_smb(source, options, mount):
@@ -310,31 +321,17 @@ def start_smb(source, options, mount):
     result = ''
     if output.stdout:
         result += output.stdout
-    return result
+    return result.replace('Password:','').strip()
 
 def start_sshfs(source, mount):
     """
     start an sshfs session to make a share available
     """
-    def start_ssh_server(src, mnt):
-        src = 'root@%s' % src
-        command = ['/usr/bin/sshfs'] + sshfs_options + [src, mnt]
-        os.execv(command[0], command)
-    d = Daemon(
-            target=start_ssh_server,
-            args=(source, mount),
-            stdin=server_root+'\r\n',
-            inherit_files=[STDOUT, STDERR],
-            process_ids=openerp_ids,
-            init_groups=False,
-            )
-    d.start()
-    result = ''
-    if d.output:
-        result += d.output
-    if d.error:
-        result += d.error
-    return result
+    source = 'root@%s' % source
+    cmd = Popen(['/usr/bin/sshfs'] + sshfs_options + [source, mount], stdin=PIPE, stdout=PIPE, stderr=STDOUT)
+    cmd.stdin.write(server_root + '\r\n')
+    output = cmd.stdout.read()
+    return output
 
 def stop_smb(mount):
     """

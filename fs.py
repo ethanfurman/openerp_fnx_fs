@@ -6,7 +6,7 @@ from osv.osv import except_osv as ERPError
 from osv import osv, fields
 from pwd import getpwuid
 from pytz import timezone
-from subprocess import check_output, CalledProcessError
+from subprocess import check_output, CalledProcessError, STDOUT
 from tempfile import NamedTemporaryFile
 import errno
 import logging
@@ -16,6 +16,7 @@ import re
 import shutil
 import socket
 import threading
+import time
 
 _logger = logging.getLogger(__name__)
 
@@ -371,29 +372,7 @@ class fnx_fs_folder(osv.Model):
             write_permissions(self, cr)
         if values['folder_type'] != 'virtual':
             write_mount(self, cr)
-            if values['folder_type'] == 'shared':
-                self.fnx_start_share(cr, uid, [new_id], context=context)
         return new_id
-
-    def fnx_start_share(self, cr, uid, ids, share_name=None, context=None):
-        if share_name is not None and not isinstance(ids, (int, long)) and len(ids) > 1:
-            raise ERPError('Programming Error', 'Cannot specify a share name and more than one record')
-        if isinstance(ids, (int, long)):
-            ids = [ids]
-        if share_name is not None:
-            share_names = [share_name]
-        else:
-            share_names = []
-            for share in self.browse(cr, uid, ids, context=context):
-                share_names.append(share.path)
-        for share_name in share_names:
-            share_cmd = ['/usr/local/bin/fnxfs', 'shares', 'start', share_name]
-            try:
-                output = check_output(share_cmd)
-            except Exception, exc:
-                _logger.exception('Unable to start share: %s', share_name)
-                return False
-        return True
 
     def fnx_stop_share(self, cr, uid, ids, share_name=None, context=None):
         if share_name is not None and not isinstance(ids, (int, long)) and len(ids) > 1:
@@ -410,8 +389,9 @@ class fnx_fs_folder(osv.Model):
             share_cmd = ['/usr/local/bin/fnxfs', 'shares', 'stop', share_name]
             _logger.info('%s', ' '.join(share_cmd))
             try:
-                output = check_output(share_cmd)
+                output = check_output(share_cmd, stderr=STDOUT)
             except Exception, exc:
+                _logger.warning(exc.output)
                 _logger.exception('Unable to stop share: %s', share_name)
                 return False
         return True
@@ -430,7 +410,6 @@ class fnx_fs_folder(osv.Model):
                 if 'folder_type' in values:
                     raise ERPError('Not Implemented', 'Cannot change the folder type.')
                 if 'parent_id' in values or 'name' in values:
-                    # TODO: unmount before and mount afterwards the non-virtual folders
                     old_path = self._get_path(cr, uid, folder.parent_id.id, folder.name, context=context)
                     old = old_path.exists()
                     new = new_path.exists()
@@ -452,9 +431,6 @@ class fnx_fs_folder(osv.Model):
             write_permissions(self, cr)
         if values.get('mount_from') or values.get('mount_options') or remount:
             write_mount(self, cr)
-        for folder in remount:
-            folder.refresh()
-            folder.fnx_start_share()
         return res
 
     def unlink(self, cr, uid, ids, context=None):
@@ -501,9 +477,6 @@ class fnx_fs_file(osv.Model):
     '''
     Tracks files and restricts access.
     '''
-
-    # TODO: when a file is created or updated to have 'entire_folder' as True, scan all files
-    #       and set any others in the same source folder to have 'entire_folder' as True
 
     copy_lock = threading.Lock()
 
@@ -765,7 +738,6 @@ class fnx_fs_file(osv.Model):
             size=64,
             ),
         # other miscellanea
-        # 'entire_folder': fields.boolean('All files in this folder?'),
         'indexed_text': fields.text('Indexed content (TBI)'),
         'notes': fields.text('Notes'),
         'schedule_period': fields.selection(PERIOD_TYPE, 'Frequency'),

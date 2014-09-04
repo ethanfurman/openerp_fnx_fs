@@ -244,11 +244,18 @@ def shares(subcommand='', share=''):
     active = PropertyDict(default=dict)
     inactive = PropertyDict(default=dict)
     shares = {}
+    # get mounted shares known about in /proc/mounts
+    with open('/proc/mounts') as proc:
+        mounted_shares = proc.read()
     for typ, params in target_shares:
         source, mount = params[0], params[-1]
-        if mount.listdir():
+        if (mount.replace(' ', '\\040') + ' ') in mounted_shares:
+            if DEBUG:
+                print('active: %s' % mount)
             active[typ][mount] = source
         else:
+            if DEBUG:
+                print('inactive: %s' % mount)
             inactive[typ][mount] = source
         shares[mount] = params
     if DEBUG:

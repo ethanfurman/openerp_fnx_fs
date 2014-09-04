@@ -372,7 +372,28 @@ class fnx_fs_folder(osv.Model):
             write_permissions(self, cr)
         if values['folder_type'] != 'virtual':
             write_mount(self, cr)
+            self.fnx_start_share(cr, uid, [new_id], context=context)
         return new_id
+
+    def fnx_start_share(self, cr, uid, ids, share_name=None, context=None):
+        if share_name is not None and not isinstance(ids, (int, long)) and len(ids) > 1:
+            raise ERPError('Programming Error', 'Cannot specify a share name and more than one record')
+        if isinstance(ids, (int, long)):
+            ids = [ids]
+        if share_name is not None:
+            share_names = [share_name]
+        else:
+            share_names = []
+            for share in self.browse(cr, uid, ids, context=context):
+                share_names.append(share.path)
+        for share_name in share_names:
+            share_cmd = ['/usr/local/bin/fnxfs', 'shares', 'start', share_name]
+            try:
+                output = check_output(share_cmd)
+            except Exception, exc:
+                _logger.exception('Unable to start share: %s', share_name)
+                return False
+        return True
 
     def fnx_stop_share(self, cr, uid, ids, share_name=None, context=None):
         if share_name is not None and not isinstance(ids, (int, long)) and len(ids) > 1:
@@ -417,9 +438,18 @@ class fnx_fs_folder(osv.Model):
                         raise ERPError('Error', '%r already exists.' % new_path)
                     if folder.folder_type != 'virtual':
                         folder.fnx_stop_share()
+                        attempts = 0
+                        while "mount is still active" and attempts < 3:
+                            attempts += 1
+                            if old_path.listdir():
+                                _logger.warning('mount still being shared')
+                                time.sleep(1)
+                            else:
+                                break
                     if old and not new:
-                        old_path.move(new_path)
-                    elif not new:
+                        if not old_path.listdir():
+                            old_path.move(new_path)
+                    if not new_path.exists():
                         new_path.mkdir()
                     if folder.folder_type != 'virtual':
                         remount.append(folder)
@@ -431,6 +461,10 @@ class fnx_fs_folder(osv.Model):
             write_permissions(self, cr)
         if values.get('mount_from') or values.get('mount_options') or remount:
             write_mount(self, cr)
+        for folder in remount:
+            time.sleep(3)
+            folder.refresh()
+            folder.fnx_start_share()
         return res
 
     def unlink(self, cr, uid, ids, context=None):
@@ -468,7 +502,15 @@ class fnx_fs_folder(osv.Model):
                 if not self.fnx_stop_share(cr, uid, ids, share_name=(fp-fs_root), context=context):
                     raise ERPError('Error', 'Unable to stop share "%s"' % (fp-fs_root))
                 _logger.info('removing mount point %s', fp)
-                fp.rmdir()
+                attempts = 0
+                while "mount is active" and attempts < 3:
+                    attempts += 1
+                    if fp.listdir():
+                        _logger.warning('mount still being shared')
+                        time.sleep(1)
+                    else:
+                        fp.rmdir()
+                        break
             write_mount(self, cr)
         return res
 
@@ -850,4 +892,3 @@ class fnx_fs_file(osv.Model):
         write_permissions(self, cr)
         return success
 fnx_fs_file()
-

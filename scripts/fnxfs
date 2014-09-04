@@ -12,6 +12,7 @@ from path import Path
 from scription import Script, Command, REQUIRED, FLAG, OPTION, Run, Execute
 from subprocess import check_output, CalledProcessError, Popen, PIPE, STDOUT
 from VSS.time_machine import PropertyDict
+import commands
 import errno
 import logging
 import openerplib
@@ -258,8 +259,6 @@ def shares(subcommand='', share=''):
                 print('inactive: %s' % mount)
             inactive[typ][mount] = source
         shares[mount] = params
-    if DEBUG:
-        print('active = %s\ninactive = %s' % (active , inactive))
     if subcommand == 'active':
         for typ in ('smb', 'ssh'):
             for mnt, src in sorted(active[typ].items()):
@@ -344,12 +343,10 @@ def stop_smb(mount):
     """
     unmounts a mount
     """
-    command = ['/bin/umount', mount]
-    output = Execute(command)
-    result = ''
-    if output.stdout:
-        result = output.stdout
-    return result
+    #commands.getoutput('umount "/var/openerp/fnxfs/IT Share/Requests/newShare5"') # this one works from python shell
+    commands.getoutput('/bin/umount "%s"' % mount)
+    open('/var/log/fnxfs_debug','a+').write('/bin/umount "%s"\n' % mount)
+    return ''
 
 def stop_sshfs(mount):
     """
@@ -361,6 +358,9 @@ def stop_sshfs(mount):
     if output.stdout:
         result += output.stdout
     return result
+
+# try umount for ssh
+stop_sshfs = stop_smb
 
 def next_archive_name(archive_path):
     """

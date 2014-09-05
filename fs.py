@@ -50,7 +50,7 @@ FOLDER_TYPE = (
 FILE_TYPE = (
     ('auto', 'Auto-Publish'),   # OpenERP cron job updates the file
     ('manual', 'Publish'),      # user manually updates the file
-    ('normal', 'Collaborative'),   # normal FS usage
+    ('normal', 'Editable'),   # normal FS usage
     )
 
 PERIOD_TYPE = (
@@ -312,7 +312,7 @@ class fnx_fs_folder(osv.Model):
             'fnx_folder_readwrite_perm_rel',
             'fid',
             'uid',
-            'Read/Write Access',
+            'Read/Edit Access',
             domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1),('login','!=','openerp')]",
             ),
         'folder_type': fields.selection(
@@ -368,8 +368,7 @@ class fnx_fs_folder(osv.Model):
             with open(folder/'README', 'w') as readme:
                 readme.write(values['description'])
         new_id = super(fnx_fs_folder, self).create(cr, uid, values, context=context)
-        if values.get('readonly_ids') or values.get('readwrite_ids'):
-            write_permissions(self, cr)
+        write_permissions(self, cr)
         if values['folder_type'] != 'virtual':
             write_mount(self, cr)
             self.fnx_start_share(cr, uid, [new_id], context=context)
@@ -457,8 +456,7 @@ class fnx_fs_folder(osv.Model):
                     with open(new_path/'README', 'w') as readme:
                         readme.write(values['description'] or '')
         res = super(fnx_fs_folder, self).write(cr, uid, ids, values, context=context)
-        if values.get('readonly_type') is not None or values.get('readonly_ids') or values.get('readwrite_ids'):
-            write_permissions(self, cr)
+        write_permissions(self, cr)
         if values.get('mount_from') or values.get('mount_options') or remount:
             write_mount(self, cr)
         for folder in remount:
@@ -751,7 +749,7 @@ class fnx_fs_file(osv.Model):
             'fnx_file_readwrite_perm_rel',
             'fid',
             'uid',
-            'Read/Write Access',
+            'Read/Edit Access',
             domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1),('login','!=','openerp')]",
             ),
         'folder_id': fields.many2one(
@@ -769,7 +767,7 @@ class fnx_fs_file(osv.Model):
             help=
                 "Auto Publish --> OpenERP will update the file.\n"
                 "Publish --> User updates the file via OpenERP.\n"
-                "Read/Write --> Normal write access via the FnxFS file system.",
+                "Editable --> Normal write access via the FnxFS file system.",
             required=True,
             ),
         'file_name': fields.binaryname('Source File', type='char', size=256),

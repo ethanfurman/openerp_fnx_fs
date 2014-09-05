@@ -61,7 +61,7 @@
                             <separator attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2"/>
                             <field name="readwrite_ids" nolabel="1" colspan="2">
                                 <tree>
-                                    <field name="name" string="Read/Write Users"/>
+                                    <field name="name" string="Read/Edit Users"/>
                                 </tree>
                             </field>
                         </group>
@@ -139,7 +139,7 @@
                                     <separator attrs="{'invisible':[('readonly_type','=','all')]}" colspan="2"/>
                                     <field name="readwrite_ids" nolabel="1" colspan="2" attrs="{'readonly':[('perm_type','=','inherit')]}" options="{'create':False, 'create_edit':False, 'limit':15}">
                                         <tree>
-                                            <field name="name" string="Read/Write Users"/>
+                                            <field name="name" string="Read/Edit Users"/>
                                         </tree>
                                     </field>
                                 </group>

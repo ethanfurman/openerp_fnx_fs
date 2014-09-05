@@ -892,3 +892,5 @@ class fnx_fs_file(osv.Model):
         write_permissions(self, cr)
         return success
 fnx_fs_file()
+
+ vim:expandtab:smartindent:tabstop=4:softtabstop=4:shiftwidth=4:

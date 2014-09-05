@@ -112,6 +112,8 @@ def cp(
     """
     copy file/folder into FnxFS structure, also archiving it
     """
+    os.setuid(0)
+    os.setgid(0)
     if not src.isdir():
         if not dst.exists() and not force:
             raise SystemExit('destination file does not exist (use --force to copy anyway)')

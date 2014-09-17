@@ -135,6 +135,10 @@ def write_permissions(oe, cr):
         root = Path('/')
         for folder in folders:
             seen = set()
+            if folder.collaborative:
+                max_perm = 'create'
+            else:
+                max_perm = 'write'
             perm_folder = folder
             while perm_folder.perm_type != 'custom':
                 # search parents until 'custom' found
@@ -147,7 +151,7 @@ def write_permissions(oe, cr):
                 raise ERPError('Programming Error', 'unknown readonly type: %r' % perm_folder.readonly_type)
             for user in (perm_folder.readwrite_ids or []):
                 seen.add(user.id)
-                lines.append('%s:write:%s/*' % (user.login, root/folder.path))
+                lines.append('%s:%s:%s/*' % (user.login, max_perm, root/folder.path))
             for user in perm_folder.readonly_ids:
                 if user.id not in seen:
                     lines.append('%s:read:%s/*' % (user.login, root/folder.path))
@@ -327,6 +331,10 @@ class fnx_fs_folder(osv.Model):
             'Share Owner',
             domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1),('login','!=','openerp')]",
             required=True,
+            ),
+        'collaborative': fields.boolean(
+            'Create/Delete for Read/Edit users?',
+            help="These users have complete control over all files in this folder",
             ),
         }
     _sql_constraints = [

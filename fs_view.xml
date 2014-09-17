@@ -21,6 +21,7 @@
             <field name="model">fnx.fs.folder</field>
             <field name="arch" type="xml">
                 <form string="Folders" version="7.0">
+                    <separator string="Folder Settings"/>
                     <group>
                         <group>
                             <field name="id" invisible="1"/>
@@ -40,7 +41,10 @@
                     <group attrs="{'invisible':[('id','=',False)]}">
                         <field name="child_ids" context="{'default_parent_id':active_id}"/>
                     </group>
-                    <separator string="Default File Settings"/>
+                    <group>
+                        <field name="collaborative"/>
+                    </group>
+                    <separator string="File Settings"/>
                     <group colspan="2">
                         <group>
                             <field name="perm_type" on_change="change_permissions(perm_type, parent_id, 'perm')" attrs="{'invisible':[('parent_id','=',False)]}"/>

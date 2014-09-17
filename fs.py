@@ -151,7 +151,7 @@ def write_permissions(oe, cr):
             for user in perm_folder.readonly_ids:
                 if user.id not in seen:
                     lines.append('%s:read:%s/*' % (user.login, root/folder.path))
-            if folder.share_owner_id not in seen and folder.share_owner_id.login != 'openerp':
+            if folder.share_owner_id not in seen and folder.share_owner_id.login not in (None, 'openerp'):
                 lines.append('%s:read:%s/*' % (folder.share_owner_id.login, root/folder.path))
         for file in files:
             if file.perm_type == 'inherit':

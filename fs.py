@@ -139,24 +139,28 @@ def write_permissions(oe, cr):
                 max_perm = 'create'
             else:
                 max_perm = 'write'
+            # default is deny all
+            lines.append('all:none:%s/*' % (root/folder.path))
             perm_folder = folder
             while perm_folder.perm_type != 'custom':
                 # search parents until 'custom' found
                 perm_folder = folder.parent_id
-            # default is deny all
-            lines.append('all:none:%s/*' % (root/folder.path))
-            if perm_folder.readonly_type == 'all':
-                lines.append('all:read:%s/*' % (root/folder.path))
-            elif perm_folder.readonly_type != 'selected':
-                raise ERPError('Programming Error', 'unknown readonly type: %r' % perm_folder.readonly_type)
-            for user in (perm_folder.readwrite_ids or []):
-                seen.add(user.id)
-                lines.append('%s:%s:%s/*' % (user.login, max_perm, root/folder.path))
-            for user in perm_folder.readonly_ids:
-                if user.id not in seen:
-                    lines.append('%s:read:%s/*' % (user.login, root/folder.path))
-            if folder.share_owner_id not in seen and folder.share_owner_id.login not in (None, 'openerp'):
-                lines.append('%s:read:%s/*' % (folder.share_owner_id.login, root/folder.path))
+                if perm_folder in (False, None):
+                    # reached the end, nothing found -- skip
+                    break
+            else:
+                if perm_folder.readonly_type == 'all':
+                    lines.append('all:read:%s/*' % (root/folder.path))
+                elif perm_folder.readonly_type != 'selected':
+                    raise ERPError('Programming Error', 'unknown readonly type: %r' % perm_folder.readonly_type)
+                for user in (perm_folder.readwrite_ids or []):
+                    seen.add(user.id)
+                    lines.append('%s:%s:%s/*' % (user.login, max_perm, root/folder.path))
+                for user in perm_folder.readonly_ids:
+                    if user.id not in seen:
+                        lines.append('%s:read:%s/*' % (user.login, root/folder.path))
+                if folder.share_owner_id not in seen and folder.share_owner_id.login not in (None, 'openerp'):
+                    lines.append('%s:read:%s/*' % (folder.share_owner_id.login, root/folder.path))
         for file in files:
             if file.perm_type == 'inherit':
                 continue

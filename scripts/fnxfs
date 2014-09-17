@@ -346,9 +346,9 @@ def stop_smb(mount):
     unmounts a mount
     """
     #commands.getoutput('umount "/var/openerp/fnxfs/IT Share/Requests/newShare5"') # this one works from python shell
-    commands.getoutput('/bin/umount "%s"' % mount)
+    output = commands.getoutput('/bin/umount "%s"' % mount)
     open('/var/log/fnxfs_debug','a+').write('/bin/umount "%s"\n' % mount)
-    return ''
+    return output
 
 def stop_sshfs(mount):
     """

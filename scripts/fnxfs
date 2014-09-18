@@ -23,6 +23,8 @@ import time
 
 openerp_ids = tuple(pwd.getpwnam('openerp')[2:4])
 
+os.setuid(0)
+os.setgid(0)
 
 log_file = Path('/var/log/openerp/sshfs.log')
 open(log_file, 'w').close()
@@ -50,7 +52,7 @@ OE = PropertyDict()
 
 sshfs_options = [
         #'-f',
-        '-o','allow_root',
+        '-o','allow_other',
         #'-o','kernel_cache',
         '-o','StrictHostKeyChecking=no',
         '-o','password_stdin',
@@ -279,9 +281,9 @@ def shares(subcommand='', share=''):
                 elif mnt in inactive[typ]:
                     print('%s already stopped' % mnt)
         if subcommand in ('restart', 'start'):
-            if os.getuid() == 0 and typ == 'ssh':
-                os.initgroups('openerp', openerp_ids[1])
-                os.setuid(openerp_ids[0])
+            #if os.getuid() == 0 and typ == 'ssh':
+            #    os.initgroups('openerp', openerp_ids[1])
+            #    os.setuid(openerp_ids[0])
             for mnt in sorted(shares.keys()):
                 if mnt in inactive[typ]:
                     print('starting ', mnt, '. . . ', end='')
@@ -324,7 +326,13 @@ def start_smb(source, options, mount):
     """
     start a normal mount
     """
+    source = '"%s"' % source
+    mount = '"%s"' % mount
     command = ['/bin/mount', source] + options.split() + [mount]
+    # command =  ' '.join(command)
+    with open('/var/log/fnxfs_debug', 'a+') as debug:
+        debug.write(' '.join(command) + '\n')
+    # return commands.getoutput(command)
     output = Execute(command, password=server_root)
     result = ''
     if output.stdout:

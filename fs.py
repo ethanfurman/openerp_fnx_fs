@@ -167,6 +167,8 @@ def write_permissions(oe, cr):
             folder = file.folder_id.path
             path = Path('/')/folder/file.shared_as
             read_write = set()
+            # default is deny all
+            lines.append('all:none:%s' % path)
             for user in file.readwrite_ids:
                 read_write.add(user.id)
                 if file.file_type == 'normal':

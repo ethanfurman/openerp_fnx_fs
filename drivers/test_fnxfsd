@@ -1,0 +1,419 @@
+#!/usr/bin/suid-python
+from getpass import getpass
+from path import Path
+from pwd import getpwall as get_system_users
+from grp import getgrall as get_system_groups
+from scription import *
+from unittest import TestCase, main as test
+import functools
+import os
+import subprocess
+import sys
+import time
+import types
+
+#####################
+# set up and prepare
+#####################
+
+@Script(
+        verbose=('more info on tests', OPTION),
+        tests=('specific tests to run', OPTION),
+        )
+def main(verbose, *tests):
+    if os.getuid() != 0 and os.geteuid() != 0:
+        raise SystemExit('tests must be run as root')
+    get_test_users()
+    if len(users_in_same_group) == 1:
+        raise SystemExit('user %r must be in the same group as at least one other user' % actual_user.pw_name)
+    if not users_in_different_group:
+        raise SystemExit('need at least one user with no common group as %r' % actual_user.pw_name)
+    with open('password') as pass_file:
+        global root_password
+        root_password = pass_file.read().strip()
+    try:
+        # remove_dirs()
+        create_dirs()
+        test()
+    finally:
+        remove_dirs()
+
+pyver = sys.version_info[:2]
+not_suid = True
+if os.getuid() != 0:
+    not_suid = False
+
+system_users = get_system_users()
+system_groups = get_system_groups()
+cwd = Path.getcwd()
+home = cwd / 'mount'
+local = cwd / 'local'
+remote = cwd / 'remote'
+perm_file = cwd / 'fnxfs.permissions'
+shares_file = cwd / 'fnxfs.mount'
+test_conf = cwd / 'test.conf'
+common_files = [
+        'index.txt',
+        '.profile',
+        '.bashrc',
+        '.vimrc',
+        'prefs',
+        'Desktop/selfie.png',
+        'Desktop/logo.jpg',
+        'Public/motto.txt',
+        ]
+common_folders = [
+        '.mozilla',
+        'Desktop',
+        'Public',
+        'Public/letters',
+
+        ]
+
+# taken from the 2.7 libs
+class SkipTest(Exception):
+    """
+    Raise this exception in a test to skip it.
+
+    Usually you can use TestResult.skip() or one of the skipping decorators
+    instead of raising this directly.
+    """
+    pass
+
+def _id(obj):
+    return obj
+
+def skip(reason):
+    """
+    Unconditionally skip a test.
+    """
+    def decorator(test_item):
+        if not isinstance(test_item, (type, types.ClassType)):
+            @functools.wraps(test_item)
+            def skip_wrapper(*args, **kwargs):
+                raise SkipTest(reason)
+            test_item = skip_wrapper
+
+        test_item.__unittest_skip__ = True
+        test_item.__unittest_skip_why__ = reason
+        return test_item
+    return decorator
+
+def skipIf(condition, reason):
+    """
+    Skip a test if the condition is true.
+    """
+    if condition:
+        return skip(reason)
+    return _id
+
+def skipUnless(condition, reason):
+    """
+    Skip a test unless the condition is true.
+    """
+    if not condition:
+        return skip(reason)
+    return _id
+
+
+###############
+# Actual Tests
+###############
+
+class TestLocalFS(TestCase):
+
+    def setUp(self):
+        # make sure we're root
+        os.setreuid(actual_user_id, 0)
+        self.tearDown()
+        for user in users:
+            home_user = home/user.pw_name
+            local_user = local/user.pw_name
+            user_ids = user.pw_uid, user.pw_gid
+            local_user.mkdir()
+            local_user.chmod(0o755)
+            local_user.chown(*user_ids)
+            stat = local_user.stat()
+            self.assertEqual((stat.st_uid, stat.st_gid), user_ids)
+            stat = home_user.stat()
+            self.assertEqual((stat.st_uid, stat.st_gid), user_ids)
+            for folder in common_folders:
+                user_folder = local_user/folder
+                user_folder.mkdir()
+                user_folder.chmod(0o755)
+                user_folder.chown(*user_ids)
+                stat = user_folder.stat()
+                self.assertEqual((stat.st_uid, stat.st_gid), user_ids)
+                stat = (home_user/folder).stat()
+                self.assertEqual((stat.st_uid, stat.st_gid), user_ids)
+            for i, file in enumerate(common_files):
+                user_file = local_user/file
+                with open(user_file, 'w') as f:
+                    f.write(str(i))
+                user_file.chmod(0o640)
+                user_file.chown(*user_ids)
+                stat = user_file.stat()
+                self.assertEqual((stat.st_uid, stat.st_gid), user_ids)
+                stat = (home_user/file).stat()
+                self.assertEqual(
+                        (stat.st_uid, stat.st_gid),
+                        user_ids,
+                        'file %s [%r] does not match %s [%r]' % (home_user/file, (stat.st_uid, stat.st_gid), user_file, user_ids))
+        self.target_file = home/users[0].pw_name/common_files[0]
+
+    def tearDown(self):
+        # make sure we're root
+        os.setreuid(actual_user_id, 0)
+        for user in users:
+            local_user = local/user.pw_name
+            if local_user.exists():
+                local_user.rmtree()
+
+    @skipIf(not_suid, 'test should be run as a normal user and on Python 2.7')
+    def test_access_as_root(self):
+        """
+        can test for file existence, or read|write|execute, but is based on the real user
+        """
+        # check as root, which should only fail if X_OK is asked for, but the execution bit is
+        # not set for any of user/group/other
+        os.setreuid(0, actual_user_id)
+        target_file = self.target_file
+        for perms, executable in all_perms():
+            target_file.chmod(perms)
+            for request in range(1, 8):
+                self.assertEqual(target_file.access(0), True)
+                should_succeed = True
+                if (request & 1) and (((perms & 0o700) >> 6 | (perms & 0o070) >> 3 | (perms & 0o007)) & 1 != 1):
+                    should_succeed = False
+                self.assertEqual(
+                        target_file.access(request),
+                        should_succeed,
+                        'file %s with perms of %03o failed request of %03o (should_succeed: %s' % (target_file, perms, request, should_succeed))
+        os.setreuid(actual_user_id, 0)
+
+    @skipIf(not_suid, 'test should be run as a normal user')
+    def test_access_as_user(self):
+        """
+        can test for file existence, or read|write|execute, but is based on the real user
+        """
+        target_file = self.target_file
+        for perms, executable in all_perms():
+            target_file.chmod(perms)
+            for request in range(1, 8):
+                # request represents the bit position which represents the permission we are asking for:
+                #  1 -> execute
+                #  2 -> write
+                #  3 -> read
+                should_succeed = ((perms & 0o700) >> 6 | (perms & 0o070) >> 3 | (perms & 0o007)) & request == request
+                self.assertEqual(target_file.access(0), True)
+                self.assertEqual(
+                        target_file.access(request),
+                        should_succeed,
+                        'file %s with perms of %03o failed request of %03o (should_succeed: %s)' % (target_file, perms, request, should_succeed))
+
+    def test_chmod_as_root(self):
+        os.setreuid(0, 0)
+        for user in users:
+            target_file = home/user.pw_name/common_files[0]
+            target_file.chmod(0o520)
+
+    def test_chmod_as_user(self):
+        os.setreuid(0, actual_user_id)
+        for user in users:
+            target_file = home/user.pw_name/common_files[0]
+            if user.pw_uid == actual_user_id:
+                target_file.chmod(0o520)
+            else:
+                self.assertRaises(OSError, target_file.chmod, 0o520)
+
+    def test_chown_group(self):
+        """
+        owner can only change the group owner to a group the owner belongs to
+        """
+        # lose root privilege
+        os.seteuid(actual_user_id)
+        uncommon_gid = different_groups[0].gr_gid
+        common_gid = common_groups[0].gr_gid
+        for user in users:
+            target_file = home/user.pw_name/common_files[0]
+            self.assertRaises(OSError, target_file.chown, user.pw_uid, uncommon_gid)
+            target_file.chown(user.pw_uid, common_gid)
+            stat = target_file.stat()
+            mounted = stat.st_uid, stat.st_gid
+            stat = (local/user.pw_name/common_files[0]).stat()
+            master = stat.st_uid, stat.st_gid
+            self.assertEqual(mounted, master)
+            self.assertEqual(master, (user.pw_uid, common_gid))
+        # grab root privilege back
+        os.seteuid(0)
+        for user in users:
+            target_user = user.pw_uid, uncommon_gid
+            mirrored_file = home/user.pw_name/common_files[0]
+            source_file = local/user.pw_name/common_files[0]
+            mirrored_file.chown(*target_user)
+            mirrored_stat = mirrored_file.stat()
+            source_stat = source_file.stat()
+            self.assertEqual((mirrored_stat.st_uid, mirrored_stat.st_gid), target_user)
+            self.assertEqual((source_stat.st_uid, source_stat.st_gid), target_user)
+
+    def test_chown_user(self):
+        """
+        only root can change ownership
+        """
+        # lose root privilege
+        os.seteuid(actual_user_id)
+        target_user = users[0].pw_uid, users[0].pw_gid
+        for user in users:
+            target_file = home/user.pw_name/common_files[0]
+        self.assertRaises(OSError, target_file.chown, *target_user)
+        # grab root privilege back
+        os.seteuid(0)
+        for user in users:
+            mirrored_file = home/user.pw_name/common_files[0]
+            source_file = local/user.pw_name/common_files[0]
+            mirrored_file.chown(*target_user)
+            mirrored_stat = mirrored_file.stat()
+            source_stat = source_file.stat()
+            self.assertEqual((mirrored_stat.st_uid, mirrored_stat.st_gid), target_user)
+            self.assertEqual((source_stat.st_uid, source_stat.st_gid), target_user)
+
+    # @skip('TODO: figure what is failing here')
+    def test_create_as_root(self):
+        os.seteuid(0)
+        for user in users:
+            target_folder = home/user.pw_name/common_folders[0]
+            local_folder = local/user.pw_name/common_folders[0]
+            open(target_folder/'success', 'w').close()
+            self.assertTrue((local_folder/'success').exists())
+            self.assertTrue((target_folder/'success').exists())
+            stat = target_folder.stat('success')
+            self.assertEqual((stat.st_uid, stat.st_gid), (0, os.getegid()))
+
+    def test_create_as_user(self):
+        os.seteuid(actual_user_id)
+        for user in users:
+            target_folder = home/user.pw_name/common_folders[0]
+            if user.pw_uid == actual_user_id:
+                open(target_folder/'success', 'w').close()
+                stat = target_folder.stat('success')
+                self.assertEqual((stat.st_uid, stat.st_gid), (actual_user_id, os.getegid()))
+            else:
+                self.assertRaises(IOError, open, target_folder/'success', 'w')
+
+    @skip('not implemented')
+    def test_link_as_root(self):
+        pass
+
+    @skip('not implemented')
+    def test_link_as_user(self):
+        pass
+    
+
+def all_perms():
+    for user in range(8):
+        x = False
+        if user & 1:
+            x = True
+        user <<= 6
+        for group in range(8):
+            if group & 1:
+                x = True
+            group <<= 3
+            for other in range(8):
+                if other & 1:
+                    x = True
+                perms = user | group | other
+                yield perms, x
+
+def create_dirs():
+    home.mkdir()
+    local.mkdir()
+    remote.mkdir()
+    open(perm_file, 'w').close()
+    open(shares_file, 'w').close()
+    test = os.open(test_conf, os.O_WRONLY|os.O_CREAT|os.O_EXCL, 0o440)
+    test = os.fdopen(test, 'w')
+    test.write(
+            'server_user = "root"\n'
+            'server_pass = "%(password)s"\n'
+            'root = "%(password)s"\n'
+            'openerp = "127.0.0.1"'
+            % {'password':root_password}
+            )
+    test.close()
+    with open(perm_file, 'w') as perms:
+        perms.write('%s,%s\n' % (users[0].pw_name, users[1].pw_name))
+        perms.write('all:read:Public/*\n')
+    command = [
+            './fnxfsd', local, home, '-o', 'rw',
+            '--config', test_conf,
+            '--remote_root', remote,
+            '--shares_file', shares_file,
+            '--pid_file', Path.getcwd()/'fnxfsd.pid',
+            '--verbose',
+            ]
+    subprocess.call(' '.join(command), shell=True)
+    time.sleep(2)
+    if 'FnxFS' not in subprocess.check_output(['df']):
+        raise SystemExit('unable to mount daemon')
+
+def get_common_groups(l1, l2):
+    """
+    return a list of groups present in both l1 and l2
+    """
+    # group entries are not hashable, thus we cannot use them with sets
+    g1 = [g.gr_gid for g in l1]
+    g2 = [g.gr_gid for g in l2]
+    common = set(g1) & set(g2)
+    return [g for g in l1 if g.gr_gid in common]
+
+def get_groups_with_user(user):
+    # user is a pwd pwentry
+    return filter(lambda g: user.pw_name in g.gr_mem, system_groups)
+
+def get_test_users():
+    """select users to be used in testing
+
+    users must have ids > 1000, and have at least one group in common
+    returns actual_user, actual_user_id, test_users
+    """
+    global actual_user_id, actual_user, common_groups, different_groups, users_in_same_group, users_in_different_group, users
+    actual_user_id = os.getuid()
+    actual_user = filter(lambda p: p.pw_uid == actual_user_id, system_users)[0]
+    users_in_same_group = [actual_user]
+    users_in_different_group = []
+    same_groups = filter(lambda g: actual_user.pw_name in g.gr_mem, system_groups)
+    common_groups = same_groups[:]
+    different_groups = filter(lambda g: actual_user.pw_name not in g.gr_mem and g.gr_gid != 0, system_groups)
+    for user in system_users:
+        if user.pw_uid < 1000:
+            if any(user.pw_name in g.gr_mem for g in same_groups):
+                continue
+            users_in_different_group.append(user)
+        elif any(user.pw_name in g.gr_mem and user not in users_in_same_group for g in common_groups):
+            users_in_same_group.append(user)
+            new_common_groups = reduce(
+                    get_common_groups,
+                    [get_groups_with_user(user) for user in users_in_same_group],
+                    )
+            if not new_common_groups:
+                users_in_same_group.pop()
+            else:
+                common_groups = new_common_groups
+    users = users_in_same_group[:3]
+
+def remove_dirs():
+    # return
+    os.setuid(0)
+    subprocess.call('fusermount -u "%s"' % home, shell=True)
+    time.sleep(2)
+    for folder in (home, local, remote):
+        if folder.exists():
+            folder.rmtree()
+    for file in (perm_file, shares_file, test_conf, Path('fnxfsd.pid')):
+        if file.exists():
+            file.remove()
+    
+
+if __name__ == '__main__':
+    Run()

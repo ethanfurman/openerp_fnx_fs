@@ -1,0 +1,58 @@
+#!/usr/bin/env python
+
+from getpass import getpass
+from path import Path
+from scription import *
+import os
+import pwd
+import sys
+
+test_location = Path('/usr/src/fnxfsd/')
+
+@Script(
+        test_path=('location to run tests (must be root owned)', OPTION, 't', Path),
+        )
+def main(test_path=test_location):
+    if os.getuid() != 0 and os.geteuid() != 0:
+        raise SystemExit('test prep must be run as root')
+    source = Path.getcwd() * Path(sys.modules['__main__'].__file__).path
+    backup = source/'backup'
+    owner = source.stat('fnxfsd').st_uid
+    if not backup.exists():
+        backup.mkdir()
+    if not test_path.exists():
+        test_path.mkdirs()
+    test_path.remove('*')
+    source.copy(['fnxfsd', 'test_fnxfsd'], test_path)
+    test_path.chown(0, 0, '*fnxfsd')
+    test_path.chmod(0o740, 'fnxfsd')
+    test_path.chmod(0o7755, 'test_fnxfsd')
+    test_path.chdir()
+    test_path.link('test_fnxfsd', 'test.py')
+    password = getpass('root password (for tests): ')
+    pass_file = os.open('password', os.O_WRONLY|os.O_CREAT|os.O_EXCL, 0o400)
+    pass_file = os.fdopen(pass_file, 'w')
+    pass_file.write(password)
+    pass_file.close()
+    print (
+            'you will most likely want to do\n'
+            '  - close existing editing windows for fnxfsd and test_fnxfsd\n'
+            '  - open new editing windows for fnxfsd and test_fnxfsd\n'
+            '  - su to a normal user\n'
+            '  - do your testing and editing\n'
+            'type "exit" when done (twice if you "su"ed ;)\n'
+            )
+    os.system(os.environ['SHELL'])
+    answer = '<none>'
+    while answer not in 'yn':
+        answer = raw_input('copy files back? ')
+        answer = answer[:1].lower()
+    if answer == 'y':
+        test_path.copy('*fnxfsd', source)
+        source.chmod(0o660, '*fnxfsd')
+        source.chown(owner, owner, '*fnxfsd')
+    else:
+        test_path.copy('*fnxfsd', backup)
+
+if __name__ == '__main__':
+    Run()

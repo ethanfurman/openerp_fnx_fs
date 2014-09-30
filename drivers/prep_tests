@@ -7,7 +7,7 @@ import os
 import pwd
 import sys
 
-test_location = Path('/usr/src/fnxfsd/')
+test_location = Path('/root/test/fnxfsd/')
 
 @Script(
         test_path=('location to run tests (must be root owned)', OPTION, 't', Path),

@@ -1,4 +1,4 @@
-#!/usr/bin/suid-python
+#!/usr/local/bin/suid-python
 from getpass import getpass
 from path import Path
 from pwd import getpwall as get_system_users
@@ -114,6 +114,22 @@ def skipUnless(condition, reason):
     if not condition:
         return skip(reason)
     return _id
+
+def check_output(*popenargs, **kwargs):
+    """
+    Run command with arguments and return its output as a byte string.
+    """
+    if 'stdout' in kwargs:
+        raise ValueError('stdout argument not allowed, it will be overridden.')
+    process = Popen(stdout=PIPE, *popenargs, **kwargs)
+    output, unused_err = process.communicate()
+    retcode = process.poll()
+    if retcode:
+        cmd = kwargs.get("args")
+        if cmd is None:
+            cmd = popenargs[0]
+        raise CalledProcessError(retcode, cmd, output=output)
+    return output
 
 
 ###############
@@ -354,7 +370,7 @@ def create_dirs():
             ]
     subprocess.call(' '.join(command), shell=True)
     time.sleep(2)
-    if 'FnxFS' not in subprocess.check_output(['df']):
+    if 'FnxFS' not in check_output(['df']):
         raise SystemExit('unable to mount daemon')
 
 def get_common_groups(l1, l2):

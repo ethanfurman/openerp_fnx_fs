@@ -4,15 +4,23 @@ from getpass import getpass
 from path import Path
 from scription import *
 import os
+import platform
 import pwd
 import sys
 
-test_location = Path('/root/test/fnxfsd/')
+if platform.uname()[1] == 'OETest':
+    test_location = Path('/usr/src/fnxfsd/')
+else:
+    test_location = Path('/root/test/fnxfsd/')
 
-@Script(
+live_daemon = Path('/usr/local/sbin/fnxfsd')
+devel_daemon = Path('./fnxfsd')
+
+@Command(
+        password=('prompt for root password', FLAG),
         test_path=('location to run tests (must be root owned)', OPTION, 't', Path),
         )
-def main(test_path=test_location):
+def prep_tests(password, test_path=test_location):
     if os.getuid() != 0 and os.geteuid() != 0:
         raise SystemExit('test prep must be run as root')
     source = Path.getcwd() * Path(sys.modules['__main__'].__file__).path
@@ -29,7 +37,12 @@ def main(test_path=test_location):
     test_path.chmod(0o7755, 'test_fnxfsd')
     test_path.chdir()
     test_path.link('test_fnxfsd', 'test.py')
-    password = getpass('root password (for tests): ')
+    if password:
+        password = getpass('root password (for tests): ')
+    else:
+        result = {}
+        execfile('/usr/local/etc/fnxfs_credentials', result)
+        password = result['root']
     pass_file = os.open('password', os.O_WRONLY|os.O_CREAT|os.O_EXCL, 0o400)
     pass_file = os.fdopen(pass_file, 'w')
     pass_file.write(password)
@@ -53,6 +66,26 @@ def main(test_path=test_location):
         source.chown(owner, owner, '*fnxfsd')
     else:
         test_path.copy('*fnxfsd', backup)
+    if test_path.exists('success'):
+        answer = '<none>'
+        while answer not in 'yn':
+            answer = raw_input('last test run was successful -- copy daemon to installed location? ')
+            answer = answer[:1].lower()
+        if answer == 'y':
+            devel_daemon.copy(live_daemon)
+            print("daemon installed -- don't forget to reboot")
+
+@Command(
+        test_path=('location of tests to recover', OPTION, 't', Path),
+        )
+def recover(test_path=test_location):
+    source = Path.getcwd() * Path(sys.modules['__main__'].__file__).path
+    backup = source/'backup'
+    owner = source.stat('fnxfsd').st_uid
+    test_path.copy('*fnxfsd', source)
+    source.chmod(0o660, '*fnxfsd')
+    source.chown(owner, owner, '*fnxfsd')
+    
 
 if __name__ == '__main__':
     Run()

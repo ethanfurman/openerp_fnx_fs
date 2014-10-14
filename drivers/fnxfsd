@@ -225,6 +225,7 @@ def log_level(
         foreground=('remain in foreground', FLAG, 'f'),
         log=('additional (duplicate) log file', OPTION, 'l', Path),
         verbose=('extra detail in log', FLAG, 'v'),
+        testing=('configure certain values to enable testing', FLAG),
         )
 @Alias('mount.fnxfs')
 def fnxfsd(
@@ -237,7 +238,8 @@ def fnxfsd(
         pid_file=pid_file,
         foreground=False,
         log='',
-        verbose=False
+        verbose=False,
+        testing=False,
         ):
 
     execfile(config, globals())
@@ -276,6 +278,13 @@ def fnxfsd(
         fh.setLevel(logging.DEBUG)
         if foreground:
             console.setLevel(logging.DEBUG)
+    global server_delay, archive_okay
+    if testing:
+        server_delay = 0
+        archive_okay = False
+    else:
+        server_delay = 1
+        archive_okay = True
     logger.info('~~~ config file: %s', config)
     read_write = True
     threads = False
@@ -299,6 +308,7 @@ def fnxfsd(
             entry_timeout=0.0,
             attr_timeout=0.0,
             nothreads=not threads,
+            # hard_remove=True,
             #follow_symlinks=True,
             )
     logger.debug('*** fuse args: %s', fuse_kwargs)
@@ -314,6 +324,7 @@ def fnxfsd(
         daemon.pid_file = pid_lock
         daemon.uid = 0
         daemon.gid = 0
+        daemon.umask = 0
         if log:
             daemon.stdout = log
             daemon.stderr = log
@@ -506,16 +517,17 @@ def possibly_archive(sftp, written_files, path):
     if path in written_files:
         written_files.remove(path)
         logger.info('--- archiving %s', path)
-        stdin, stdout, stderr = sftp.exec_command('/usr/local/bin/fnxfs archive "%s"' % path)
-        data = []
-        while True:
-            text = stderr.read(1024)
-            if not text:
-                break
-            data.append(text)
-        if data:
-            for line in ''.join(data).split('\n'):
-                logger.error(line.strip())
+        if archive_okay:
+            stdin, stdout, stderr = sftp.exec_command('/usr/local/bin/fnxfs archive "%s"' % path)
+            data = []
+            while True:
+                text = stderr.read(1024)
+                if not text:
+                    break
+                data.append(text)
+            if data:
+                for line in ''.join(data).split('\n'):
+                    logger.error(line.strip())
 
 
 class FnxFS(object):
@@ -550,12 +562,11 @@ class FnxFS(object):
         self._permission_file = remote_root / '..' / 'fnxfs.permissions'
         self._read_write = read_write
         self._shares_file = shares_file
-        # self._permission
-        self._user = None
+        self._active_users = set([])
         self._uid = 0
         self._gid = 0
         self._permission_state = None
-        self._users = set()
+        self._allowed_users = set()
         self._mount = set()
         self._cache = defaultdict(dict)
         self._file_permissions = defaultdict(dict)
@@ -677,7 +688,7 @@ class FnxFS(object):
                 self._sftp = None
                 raise OSError(ENOLINK, 'remote link down')
         user = self.context.user
-        if current_state != self._permission_state or user not in self._folders:
+        if current_state != self._permission_state or user in self._allowed_users and user not in self._active_users:
             logger.debug('>>> reading permissions for %r...', user)
             with self._sftp.open(self._shares_file) as data:
                 mounts = data.readlines()
@@ -691,8 +702,12 @@ class FnxFS(object):
                 self._mount.add(mount_point)
             with self._sftp.open(self._permission_file) as data:
                 permissions = iter(data.readlines())
-            self._users = set(next(permissions).strip().split(','))
-            logger.debug('>>>   users: %r', self._users)
+            self._allowed_users = set(next(permissions).strip().split(','))
+            logger.debug('>>>   users: %r', self._allowed_users)
+            # if current user does not have at least Consumer privilege, we're done
+            if user not in self._allowed_users:
+                return
+            self._active_users = set([user])
             self._file_permissions[user] = user_permissions = {}
             self._folders[user] = user_folders = defaultdict(set)
             # add the FnxFS 'root' directory
@@ -700,9 +715,6 @@ class FnxFS(object):
             user_permissions[Path('/')] = 0
             user_folders[Path('')]
             user_permissions[Path('')] = 0
-            # if current user does not have at least Consumer privilege, we're done
-            if user not in self._users:
-                return
             # process file
             target = user + ':'
             for line in permissions:
@@ -715,23 +727,32 @@ class FnxFS(object):
                 file = fn.lstrip('/')
                 path = fn.path.strip('/')
                 ep = user_permissions.get(file, 0)
+                pp = user_permissions.get(path, 0)
+                logger.debug('>>> %s %s %s', path, file, ep)
                 if perm == 'none':
                     user_permissions[file] = ep | 0o0
-                    user_permissions[path] = ep | 0o0
+                    user_permissions[path] = pp | 0o0
+                    logger.debug('  > %s %o', file, user_permissions[file])
+                    logger.debug('  > %s %o', path, user_permissions[path])
                 elif perm == 'read' or perm in ('create', 'write') and not self._read_write:
                     user_permissions[file] = ep | 0o400
-                    user_permissions[path] = ep | 0o500
+                    user_permissions[path] = pp | 0o500
+                    logger.debug('  > %s %o', file, user_permissions[file])
+                    logger.debug('  > %s %o', path, user_permissions[path])
                 elif perm == 'write' and self._read_write:
                     user_permissions[file] = ep | 0o600
-                    user_permissions[path] = ep | 0o500
+                    user_permissions[path] = pp | 0o500
+                    logger.debug('  > %s %o', file, user_permissions[file])
+                    logger.debug('  > %s %o', path, user_permissions[path])
                 elif perm == 'create' and self._read_write:
                     user_permissions[file] = ep | 0o600
-                    user_permissions[path] = ep | 0o700
+                    user_permissions[path] = pp | 0o700
+                    logger.debug('  > %s %o', file, user_permissions[file])
+                    logger.debug('  > %s %o', path, user_permissions[path])
                 else:
                     raise FuseOSError('Corrupted permissions file')
                 user_folders[path].add(file.filename)
                 dirs = path.dir_elements
-                logger.debug('--- path -> %r', dirs)
                 if not dirs:
                     user_folders[Path('/')].add(path)
                     user_permissions[Path('/')] = 0o500
@@ -745,6 +766,7 @@ class FnxFS(object):
                     user_folders[stem].add(path.filename)
             for folder in user_folders:
                 logger.debug('<<< %s [%o]: %r', folder, user_permissions[folder], user_folders[folder])
+                logger.debug('<-> %s' % ', '.join(['%s %o' % (file, user_permissions[folder/file]) for file in user_folders[folder] if file not in user_folders]))
                 if user_permissions[folder]:
                     user_permissions[folder/'README'] = 0o400
             self._permission_state = current_state
@@ -885,6 +907,7 @@ class FnxFS(object):
 
     def local_getattr(self, path, fh=None):
         self.local_access(path.path, os.R_OK|os.X_OK)
+        elements = self.context.original_path.elements
         st = os.lstat(path)
         result = dict(
                 (key, getattr(st, key))
@@ -930,7 +953,7 @@ class FnxFS(object):
         # 0b02 = READ-WRITE
         rw_flags = flags & 3
         perms = 0
-        if not rw_flags or rw_flags and os.O_RDWR:
+        if not rw_flags or rw_flags & os.O_RDWR:
             perms |= os.R_OK
         if rw_flags:
             perms |= os.W_OK
@@ -943,12 +966,13 @@ class FnxFS(object):
     def local_opendir(self, path):
         self._local_check_access(path, os.R_OK)
         logger.debug('--- %r', path.elements)
-        if len(self.context.original_path.elements) == 2 and self._sftp is not None:
+        elements = self.context.original_path.elements
+        if len(elements) == 2 and self._sftp is not None:
             logger.debug('--- a home directory')
-            if time() - self._last_permissions_check >= 1:
-                logger.debug('--- checking permissions file')
-                self._last_permissions_check = time()
-                self._check_permissions()
+            logger.debug('--- checking permissions file')
+            user, self.context.user = self.context.user, elements[1]
+            self._check_permissions()
+            self.context.user = user
         return 0
 
     def local_read(self, path, size, offset, fh):
@@ -959,7 +983,7 @@ class FnxFS(object):
     def local_readdir(self, path, fh):
         files = os.listdir(path)
         elements = self.context.original_path.elements
-        if len(elements) > 1 and elements[1] in self._users:
+        if len(elements) == 2 and elements[1] in self._allowed_users:
             logger.debug('--- adding FnxFS')
             files.append('FnxFS')
         self.seen_files.add(self.context.user, path, files)
@@ -1056,24 +1080,34 @@ class FnxFS(object):
         stderr.close()
         self._server.close()
 
-    def _get_perms(self, path, remote_st=None):
+    def _get_perms(self, path, remote_st=None, directory=False):
         """
         path exists remotely -- what are user's permissions locally?
         """
         logger.debug('+++ %s ||%s||', path, remote_st)
         if self._remote_root in path:
-            target = path - self._remote_root
+            target = (path - self._remote_root).lstrip('/')
         else:
             target = path
+        if target in ('', '/'):
+            logger.debug('+++ perms: 0o555')
+            return 0o555
+        if _is_hidden_or_swap(path):
+            logger.debug('+++ hidden file: 0o600')
+            return 0o600
+        logger.debug('+++ path: %s', target.path)
+        logger.debug('+++ file: %s', target.filename)
         user = self.context.user
         permissions = self._file_permissions[user]
         folders = self._folders[user]
-        logger.debug('+++ path: %s', target.path)
-        logger.debug('+++ file: %s', target.filename)
         if target in permissions:
             logger.debug('+++ found: %o', permissions[target])
             return permissions[target]
-        return permissions.get(self._find_path(path), 0)
+        path = self._find_path(path)
+        if directory:
+            return permissions.get(path, 0)
+        else:
+            return permissions.get(path/'*', 0)
 
     def _find_path(self, path):
         """
@@ -1082,72 +1116,82 @@ class FnxFS(object):
         folders = self._folders[self.context.user]
         logger.debug('*** path: %s', path)
         if self._remote_root in path:
-            lookup = (path - self._remote_root) or Path('/')
+            lookup = (path - self._remote_root).lstrip('/') # or Path('/')
         else:
             lookup = path
         if lookup in folders:
+            logger.debug('*** lookup: %s', lookup)
             return lookup
         elements = lookup.elements
         found = elements[0]
         for next_ele in elements[1:]:
             if found/next_ele not in folders:
+                logger.debug('*** failed: %s', found/next_ele)
                 break
             found /= next_ele
+        logger.debug('*** calced: %s', found)
         return found
 
-    def _remote_check_access(self, path, mode):
+    def _remote_check_access(self, path, mode, directory=False):
         """
         raise error if user has no access
         """
         user = self.context.user
-        logger.debug('--- user: %s', user)
+        logger.debug('### user: %s', user)
         if _is_hidden_or_swap(path):
             return 0
-        if self.context.uid and self.context.uid != self.context.share_uid:
+        if self.context.uid and self.context.uid != self.context.share_uid and len(path.elements) > 3:
             _no_access()
         # trim path to look like stored keys
-        trimmed_path = reduce(op.div, self.context.original_path.elements[3:], Path('')).strip('/') or Path('/')
-        logger.debug('--- %s', trimmed_path)
-        file_perm = self._get_perms(trimmed_path)
-        logger.debug('--- perm: %5o', file_perm)
-        logger.debug('--- aces: %d', mode)
+        trimmed_path = reduce(op.div, path.elements[3:], Path('')).strip('/') or Path('/')
+        logger.debug('### %s', trimmed_path)
+        file_perm = self._get_perms(trimmed_path, directory=directory)
+        logger.debug('### perm: %5o', file_perm)
+        logger.debug('### aces: %d', mode)
         if file_perm == 0:
             _no_access()
-        # only the owner is allowed in to FnxFS, so only check the user permissions
-        user = (file_perm & 0o700) >> 6
-        if user & mode == mode:
+        # only the owner is allowed in to FnxFS, so only check the user permissions,
+        # but only if the current user is the owner
+        if self.context.uid == self.context.share_uid or self.context.uid == 0:
+            result = (file_perm & 0o700) >> 6
+        else:
+            result = file_perm & 0o007
+        if result & mode == mode:
             return 0
         _no_access()
 
     def remote_access(self, path, mode):
-        return self._remote_check_access(path, mode)
+        return self._remote_check_access(self.context.original_path, mode)
 
     def remote_chmod(self, path, mode):
+        if self.context.uid not in (0, self.context.share_uid):
+            _no_access()
         logger.debug('--- changing mod (psyche!)')
         user = self.context.user
         permissions = self._file_permissions[user]
-        target = path - self._remote_root
-        if target in permissions:
-            permmissions[target] = mode
+        target = (path - self._remote_root).lstrip('/')
+        logger.debug('--- current: %o   requested: %o', permissions[target], mode)
+        if permissions[target] != mode:
+            _no_access()
         return 0
 
     def remote_chown(self, path, uid, gid):
+        if self.context.share_uid != uid or self.context.share_gid != gid:
+            _no_access()
         logger.debug('--- changing ownership (psyche!)')
         return 0
 
     def remote_create(self, path, mode):
         if non_ascii(path):
             raise OSError(EINVAL, 'non-ASCII characters in name')
-        try:
-            self._remote_check_access(path.path, os.W_OK|os.X_OK)
-            return 0
-        except OSError:
-            pass
+        if len(self.context.original_path.elements) == 4:
+            _no_access()
+        if not _is_hidden_or_swap(path):
+            logger.debug('-@- not hidden nor swap, checking parent dir')
+            self._remote_check_access(self.context.original_path.path, os.W_OK|os.X_OK, directory=True)
         # file_perm = self._get_perms(path)
         # if file_perm == 0 and not _is_hidden_or_swap(path):
-        if not _is_hidden_or_swap(path):
-            logger.debug('refusing to create')
-            _no_access()
+        logger.debug('-@- creating %s', path)
         self._sftp.open(path, mode='w+').close()
         self._sftp.chmod(path, mode)
         # if file_perm == 0:
@@ -1155,6 +1199,7 @@ class FnxFS(object):
         user = self.context.user
         permissions = self._file_permissions[user][path] = mode
         self._folders[user][path.dirs].add(path.filename)
+        self._cache[user][path.dirs] = (mode, None)
         return 0
 
     remote_flush = _auto_success
@@ -1168,14 +1213,15 @@ class FnxFS(object):
         user = self.context.user
         permitted, remote_st = self._cache[user].pop(path, (0, None))
         if remote_st is None:
+            logger.debug('--- remote_st is None')
             # this could probably use more fine-tuning... for now, ONLY do a
             # permissions check for getattr calls that aren't cached, otherwise
             # we kill performance
-            if time() - self._last_permissions_check >= 1:
+            if time() - self._last_permissions_check >= server_delay:
                 self._last_permissions_check = time()
                 self._check_permissions()
-            self._remote_check_access(path.path, os.R_OK|os.X_OK)
-            logger.debug('--- %s', path)
+            logger.debug('--- %s', path.path)
+            self._remote_check_access(self.context.original_path.path, os.R_OK|os.X_OK, directory=True)
             try:
                 remote_st = self._sftp.lstat(path)
             except IOError:
@@ -1186,14 +1232,18 @@ class FnxFS(object):
                 exc = sys.exc_info()[1]
                 logger.exception(exc)
                 raise
-            permitted = self._get_perms(path, remote_st)
+            if not permitted:
+                permitted = self._get_perms(path, remote_st)
         local_st = dict((key, getattr(remote_st, key)) for key in (
             'st_atime', 'st_mode', 'st_mtime', 'st_size',
             ))
         local_st['st_uid'] = self.context.share_uid
         local_st['st_gid'] = self.context.share_gid
+        local_st['st_nlink'] = 1
         if not permitted and path != self._remote_root:
             raise OSError(ENOENT, errorcode[ENOENT])
+        if permitted and is_dir(local_st['st_mode']):
+                permitted |= 0o100
         local_st['st_mode'] = remote_st.st_mode & 0o777000 | permitted
         logger.debug('--- local_st = %s', local_st)
         logger.debug('--- remote getattr duration: %s', time() - start_time)
@@ -1203,7 +1253,10 @@ class FnxFS(object):
 
     remote_lock = None
     
-    remote_mkdir = _no_support
+    def remote_mkdir(self, path, mode=None):
+        self._remote_check_access(self.context.original_path.path, os.W_OK|os.X_OK, directory=True)
+        self._sftp.mkdir(path)
+        return 0
 
     remote_mknod =  _no_access
 
@@ -1217,11 +1270,13 @@ class FnxFS(object):
             perms |= os.R_OK
         if rw_flags:
             perms |= os.W_OK
-        self._remote_check_access(path, perms)
+        self._remote_check_access(self.context.original_path, perms)
         return 0
 
     def remote_opendir(self, path):
-        return self._remote_check_access(path, os.R_OK)
+        if self.context.uid == self.context.share_uid or self.context.uid == 0:
+            return self._remote_check_access(self.context.original_path, os.R_OK)
+        _no_access()
 
     def remote_read(self, path, size, offset, fh):
         f = self._sftp.open(path)
@@ -1232,7 +1287,7 @@ class FnxFS(object):
 
     def remote_readdir(self, path, _fh):
         start_time = time()
-        if time() - self._last_permissions_check >= 1:
+        if time() - self._last_permissions_check > server_delay:
             self._last_permissions_check = time()
             self._check_permissions()
         def get_remote_files(path, common_folder=None):
@@ -1246,11 +1301,12 @@ class FnxFS(object):
                         files = self._sftp.listdir_attr(path)
             return common_folder, files
         user = self.context.user
+        logging.debug('### user: %s', user)
         cache = self._cache[user]
         permissions = self._file_permissions[user]
         folders = self._folders[user]
         logging.debug('### permissions: %r', permissions)
-        key = path - self._remote_root
+        key = (path - self._remote_root).lstrip('/')
         logging.debug('### key: %r', key)
         if key in folders:
             logging.debug('### key was in folders')
@@ -1258,6 +1314,7 @@ class FnxFS(object):
             items = []
             default_perm = permissions.get(key/'*', 0)
             _, files = get_remote_files(path)
+            logging.debug('### remote files: %r', [a.filename for a in files])
             for f in files:
                 filename = f.filename
                 target = key and key/filename or filename
@@ -1279,10 +1336,10 @@ class FnxFS(object):
             # we are looking at an inherited folder; check global permissions
             common_folder = self._find_path(path)
             perms = permissions.get(common_folder, 0)
+            names = []
+            items = []
             if perms:
                 _, files = get_remote_files(path, common_folder)
-                names = []
-                items = []
                 for f in files:
                     if not is_link(f.st_mode):
                         names.append(f.filename)
@@ -1293,12 +1350,14 @@ class FnxFS(object):
                                 st_mtime=f.st_mtime,
                                 st_size=f.st_size,
                                 st_mode=f.st_mode & 0o777000 | perms,
+                                st_nlink=1,
                                 )
                         items.append((f.filename, file_st, 0))
                         cache[path/f.filename] = perms, f
         self.seen_files.add(user, self._home/user/'FnxFS'/key, names)
         logger.debug('--- remote_readdir duration: %s', time() - start_time)
-        return items
+        # return items
+        return names
 
     def remote_readlink(self, path):
         raise OSError(ENOENT, 'no such file')
@@ -1330,35 +1389,38 @@ class FnxFS(object):
         """
         hidden = _is_hidden_or_swap(current)
         if not hidden:
-            logger.debug('*** cannot rename regular files')
-            _no_access()
+            logger.debug('*** attempt to rename a regular file')
+            self._remote_check_access(self.context.original_path.path, os.W_OK|os.X_OK, directory=True)
         new = Path(new)
         if new.elements[2:3] != ['FnxFS']:
             logger.debug('*** cannot move FnxFS file outside FnxFS')
             _no_access()
-        # self._remote_check_access(current.path, os.W_OK|os.X_OK)
-        user = self.context.user
+        self._remote_check_access(new, os.W_OK)
         new = self._remote_root / '/'.join(new.elements[3:])
         # self._remote_check_access(new.path, os.W_OK|os.X_OK)
-        self._remote_check_access(new, os.W_OK)
         try:
             self._sftp.remove(new)
         except IOError:
-            exc = sys.exc_info()[1]
-            logger.exception('*** %s', exc)
-            _no_access()
+            pass
+            # exc = sys.exc_info()[1]
+            # logger.exception('*** %s', exc)
+            # _no_access()
         self._sftp.rename(current, new)
+        user = self.context.user
         self._written[user].add(new)
         if current in self._written[user]:
             self._written[user].remove(current)
         return 0
 
-    remote_rmdir = _no_support
+    def remote_rmdir(self, path):
+        self._remote_check_access(self.context.original_path.path, os.W_OK|os.X_OK, directory=True)
+        self._sftp.rmdir(path)
+        return 0
 
     remote_symlink = _no_support
 
     def remote_truncate(self, path, length, fh=None):
-        self._remote_check_access(path, os.W_OK)
+        self._remote_check_access(self.context.original_path, os.W_OK)
         self._written[self.context.user].add(path)
         return self._sftp.truncate(path, length)
 
@@ -1366,7 +1428,7 @@ class FnxFS(object):
         hidden = _is_hidden_or_swap(path)
         lock_file = _is_lock_file(path, error=False)
         if not hidden and not lock_file:
-            self._remote_check_access(path.path, os.W_OK|os.X_OK)
+            self._remote_check_access(self.context.original_path.path, os.W_OK|os.X_OK, directory=True)
             self._sftp.unlink(path)
             return 0
         if hidden:
@@ -1379,7 +1441,7 @@ class FnxFS(object):
         return 0
 
     def remote_utimens(self, path, times=None):
-        self._remote_check_access(path, os.W_OK)
+        self._remote_check_access(self.context.original_path.path, os.W_OK)
         self._sftp.utime(path, times)
         return 0
 

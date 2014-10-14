@@ -253,7 +253,7 @@ class TestLocalFS(TestCase):
         os.setegid(0)
         target_file = self.target_file
         local_file = self.local_file
-        for user in users:
+        for user in users[:2]:
             for perms, _ in all_perms(suid=True):
                     target_file.chmod(perms)
                     self.assertEqual(target_file.stat().st_mode, local_file.stat().st_mode)
@@ -261,7 +261,7 @@ class TestLocalFS(TestCase):
     def test_chmod_as_user(self):
         os.seteuid(actual_user_id)
         os.setegid(actual_user.pw_gid)
-        for user in users:
+        for user in users[:2]:
             target_file = home/user.pw_name/common_files[0]
             local_file = local/user.pw_name/common_files[0]
             for perms, _ in all_perms(suid=True):
@@ -280,7 +280,7 @@ class TestLocalFS(TestCase):
         os.setegid(actual_user.pw_gid)
         uncommon_gid = different_groups[0].gr_gid
         common_gid = common_groups[-1].gr_gid
-        for user in users:
+        for user in users[:2]:
             target_file = home/user.pw_name/common_files[0]
             check_exception(OSError(13, 'denied'), target_file.chown, user.pw_uid, uncommon_gid)
             target_file.chown(user.pw_uid, common_gid)
@@ -293,7 +293,7 @@ class TestLocalFS(TestCase):
         # grab root privilege back
         os.seteuid(0)
         os.setegid(0)
-        for user in users:
+        for user in users[:2]:
             target_user = user.pw_uid, uncommon_gid
             mirrored_file = home/user.pw_name/common_files[0]
             source_file = local/user.pw_name/common_files[0]
@@ -311,7 +311,7 @@ class TestLocalFS(TestCase):
         os.seteuid(actual_user_id)
         os.setegid(actual_user.pw_gid)
         target_user = actual_user.pw_uid, actual_user.pw_gid
-        for user in users:
+        for user in users[:2]:
             target_file = home/user.pw_name/common_files[0]
             if user is actual_user:
                 target_file.chown(*target_user)
@@ -319,7 +319,7 @@ class TestLocalFS(TestCase):
                 check_exception(OSError(13, 'denied'), target_file.chown, *target_user)
         # grab root privilege back
         os.seteuid(0)
-        for user in users:
+        for user in users[:2]:
             mirrored_file = home/user.pw_name/common_files[0]
             source_file = local/user.pw_name/common_files[0]
             mirrored_file.chown(*target_user)
@@ -331,7 +331,7 @@ class TestLocalFS(TestCase):
     def test_create_as_root(self):
         os.seteuid(0)
         os.setegid(0)
-        for user in users:
+        for user in users[:2]:
             # create a file the normal way
             target_folder = home/user.pw_name/common_folders[0]
             local_folder = local/user.pw_name/common_folders[0]
@@ -360,7 +360,7 @@ class TestLocalFS(TestCase):
         # TODO: add test for mode as well
         os.seteuid(actual_user_id)
         os.setegid(actual_user.pw_gid)
-        for user in users:
+        for user in users[:2]:
             target_folder = home/user.pw_name/common_folders[0]
             local_folder = local/user.pw_name/common_folders[0]
             if user.pw_uid == actual_user_id:
@@ -421,7 +421,7 @@ class TestLocalFS(TestCase):
     def test_mkdir_as_root(self):
         os.seteuid(0)
         os.setegid(0)
-        for user in users:
+        for user in users[:2]:
             test = home/user.pw_name/'test'
             for perms, _ in all_perms():
                 test.mkdir(mode=perms)
@@ -520,7 +520,7 @@ class TestLocalFS(TestCase):
     def test_readdir_as_root(self):
         os.seteuid(0)
         os.setegid(0)
-        user_names = [u.pw_name for u in users]
+        user_names = [u.pw_name for u in users[:2]]
         for user in home.listdir():
             test_user = filter(lambda u: u.pw_name == user, users + users_in_different_group[0:1])[0]
             if user in user_names:
@@ -546,7 +546,7 @@ class TestLocalFS(TestCase):
     def test_readdir_as_user(self):
         os.seteuid(actual_user_id)
         os.setegid(actual_user.pw_gid)
-        user_names = [u.pw_name for u in users]
+        user_names = [u.pw_name for u in users[:2]]
         for user in home.listdir():
             test_user = filter(lambda u: u.pw_name == user, users + users_in_different_group[0:1])[0]
             if user in user_names:
@@ -584,7 +584,7 @@ class TestLocalFS(TestCase):
     def test_rename_as_root(self):
         os.seteuid(0)
         os.setegid(0)
-        for user in users:
+        for user in users[:2]:
             target_file = home/user.pw_name/common_files[0]
             local_file = (local/user.pw_name/common_files[0]).path/'boring_new_name'
             before = target_file.path.listdir()
@@ -597,7 +597,7 @@ class TestLocalFS(TestCase):
     def test_rename_as_user(self):
         os.seteuid(actual_user_id)
         os.setegid(actual_user.pw_gid)
-        for user in users:
+        for user in users[:2]:
             target_file = home/user.pw_name/common_files[0]
             local_file = (local/user.pw_name/common_files[0]).path/'boring_new_name'
             if user is actual_user:
@@ -618,7 +618,7 @@ class TestLocalFS(TestCase):
     def test_rmdir_as_root(self):
         os.seteuid(0)
         os.setegid(0)
-        for user in users:
+        for user in users[:2]:
             target_subdir = home/user.pw_name/common_folders[0]
             local_subdir = local/user.pw_name/common_folders[0]
             before = target_subdir.path.listdir()
@@ -632,7 +632,7 @@ class TestLocalFS(TestCase):
     def test_rmdir_as_user(self):
         os.seteuid(actual_user_id)
         os.setegid(actual_user.pw_gid)
-        for user in users:
+        for user in users[:2]:
             target_subdir = home/user.pw_name/common_folders[0]
             local_subdir = local/user.pw_name/common_folders[0]
             if user is actual_user:
@@ -654,7 +654,7 @@ class TestLocalFS(TestCase):
     def test_symlink_creation_as_root(self):
         os.seteuid(0)
         os.setegid(0)
-        for user in users:
+        for user in users[:2]:
             target = home/user.pw_name/common_folders[1]/'nothing_to_see_here.txt'
             source = Path('/usr/local/share/imaginary_friend')
             source.symlink(target)
@@ -665,7 +665,7 @@ class TestLocalFS(TestCase):
     def test_symlink_creation_as_user(self):
         os.seteuid(actual_user_id)
         os.setegid(actual_user.pw_gid)
-        for user in users:
+        for user in users[:2]:
             target = home/user.pw_name/common_folders[1]/'nothing_to_see_here.txt'
             source = Path('/usr/local/share/imaginary_friend')
             if user is actual_user:
@@ -727,7 +727,7 @@ class TestLocalFS(TestCase):
     def test_unlink_as_root(self):
         os.seteuid(0)
         os.setegid(0)
-        for user in users:
+        for user in users[:2]:
             target_file = home/user.pw_name/common_files[0]
             local_file = local/user.pw_name/common_files[0]
             before = target_file.path.listdir()
@@ -741,7 +741,7 @@ class TestLocalFS(TestCase):
     def test_unlink_as_user(self):
         os.seteuid(actual_user_id)
         os.setegid(actual_user.pw_gid)
-        for user in users:
+        for user in users[:2]:
             target_file = home/user.pw_name/common_files[0]
             local_file = local/user.pw_name/common_files[0]
             if user is actual_user:
@@ -778,7 +778,7 @@ class TestLocalFS(TestCase):
                 (tomorrow1.toordinal() - epoch) * 24*60*60 + tomorrow1.hour*3600 + tomorrow1.minute*60 + tomorrow1.second,
                 (tomorrow2.toordinal() - epoch) * 24*60*60 + tomorrow2.hour*3600 + tomorrow2.minute*60 + tomorrow2.second,
                 )
-        for user in users:
+        for user in users[:2]:
             target_file = home/user.pw_name/common_files[0]
             local_file = local/user.pw_name/common_files[0]
             target_file.utime(yesterday)
@@ -810,7 +810,7 @@ class TestLocalFS(TestCase):
                 (tomorrow1.toordinal() - epoch) * 24*60*60 + tomorrow1.hour*3600 + tomorrow1.minute*60 + tomorrow1.second,
                 (tomorrow2.toordinal() - epoch) * 24*60*60 + tomorrow2.hour*3600 + tomorrow2.minute*60 + tomorrow2.second,
                 )
-        for user in users:
+        for user in users[:2]:
             target_file = home/user.pw_name/common_files[0]
             local_file = local/user.pw_name/common_files[0]
             if user is actual_user:
@@ -1009,7 +1009,7 @@ class TestRemoteFS(TestCase):
     def test_chmod_as_user(self):
         os.seteuid(actual_user_id)
         os.setegid(actual_user.pw_gid)
-        for user in users:
+        for user in users[:2]:
             target_file = home/user.pw_name/self.target_file
             if user is actual_user:
                 mode = target_file.stat().st_mode
@@ -1024,15 +1024,12 @@ class TestRemoteFS(TestCase):
         """
         owner cannot be changed
         """
-        # update users
-        for user in users:
-            (home/user.pw_name/'FnxFS').listdir()
         # lose root privilege
         os.seteuid(actual_user_id)
         os.setegid(actual_user.pw_gid)
         uncommon_gid = different_groups[0].gr_gid
         common_gid = common_groups[-1].gr_gid
-        for user in users:
+        for user in users[:2]:
             target_file = home/user.pw_name/self.target_file
             if user is actual_user:
                 self.assertTrue(target_file.exists())
@@ -1042,11 +1039,12 @@ class TestRemoteFS(TestCase):
         # grab root privilege back
         os.seteuid(0)
         os.setegid(0)
-        for user in users:
+        for user in users[:2]:
             target_file = home/user.pw_name/self.target_file
-            self.assertTrue(target_file.exists())
-            check_exception(OSError(13, 'denied'), target_file.chown, 0, 0)
-            target_file.chown(user.pw_uid, user.pw_gid)
+            if user is actual_user:
+                self.assertTrue(target_file.exists())
+                check_exception(OSError(13, 'denied'), target_file.chown, 0, 0)
+                target_file.chown(user.pw_uid, user.pw_gid)
 
     def test_chown_user(self):
         """
@@ -1056,21 +1054,21 @@ class TestRemoteFS(TestCase):
         os.seteuid(actual_user_id)
         os.setegid(actual_user.pw_gid)
         target_file = home/actual_user.pw_name/self.target_file
-        for user in users:
+        for user in users[:2]:
             if user is actual_user:
                 target_file.chown(user.pw_uid, user.pw_gid)
             else:
                 check_exception(OSError(13, 'denied'), target_file.chown, user.pw_uid, user.pw_gid)
         # grab root privilege back
         os.seteuid(0)
-        for user in users:
+        for user in users[:2]:
             check_exception(OSError(13, 'denied'), target_file.chown, 0, 0)
 
     def test_create_hidden_as_root(self):
         # hidden and swap files can always be created, except in the FnxFS root
         os.seteuid(0)
         os.setegid(0)
-        for user in users:
+        for user in users[:2]:
             # create a file the normal way
             FnxFS = home/user.pw_name/'FnxFS'
             check_exception(IOError(13, 'denied'), FnxFS.open, '.failure', 'w')
@@ -1101,7 +1099,7 @@ class TestRemoteFS(TestCase):
         # otherwise, only directories whose user has write authority can have files created in them
         os.seteuid(0)
         os.setegid(0)
-        for user in users:
+        for user in users[:2]:
             # create a file the normal way
             FnxFS = home/user.pw_name/'FnxFS'
             readable = FnxFS/'Accounting/Acct Rec'
@@ -1136,7 +1134,7 @@ class TestRemoteFS(TestCase):
         # hidden and swap files can always be created, except in the FnxFS root
         os.seteuid(actual_user_id)
         os.setegid(actual_user.pw_gid)
-        for user in users:
+        for user in users[:2]:
             # create a file the normal way
             FnxFS = home/user.pw_name/'FnxFS'
             readable = FnxFS/'Accounting/Acct Rec'
@@ -1170,7 +1168,7 @@ class TestRemoteFS(TestCase):
         # otherwise, only directories whose user has write authority can have files created in them
         os.seteuid(actual_user_id)
         os.setegid(actual_user.pw_gid)
-        for user in users:
+        for user in users[:2]:
             # create a file the normal way
             FnxFS = home/user.pw_name/'FnxFS'
             readable = FnxFS/'Accounting/Acct Rec'
@@ -1205,7 +1203,7 @@ class TestRemoteFS(TestCase):
         # hard links not allowed
         os.seteuid(0)
         os.setegid(0)
-        for user in users:
+        for user in users[:2]:
             local_source = home/user.pw_name/'sample.txt'
             with open(local_source, 'w') as f:
                 f.write('abcdefghijklmnopqrstuvwxyz')
@@ -1223,7 +1221,7 @@ class TestRemoteFS(TestCase):
         # hard links not allowed
         os.seteuid(actual_user_id)
         os.setegid(actual_user.pw_gid)
-        for user in users:
+        for user in users[:2]:
             local_source = home/user.pw_name/'sample.txt'
             with open(local_source, 'w') as f:
                 f.write('abcdefghijklmnopqrstuvwxyz')
@@ -1240,7 +1238,7 @@ class TestRemoteFS(TestCase):
     def test_mkdir_as_root(self):
         os.seteuid(0)
         os.setegid(0)
-        for user in users:
+        for user in users[:2]:
             test = home/user.pw_name/'FnxFS/Quality Control/test'
             for perms, _ in all_perms():
                 if user is not actual_user:
@@ -1254,7 +1252,7 @@ class TestRemoteFS(TestCase):
     def test_mkdir_as_user(self):
         os.seteuid(actual_user_id)
         os.setegid(actual_user.pw_gid)
-        for user in users:
+        for user in users[:2]:
             test = home/user.pw_name/'FnxFS/Quality Control/test'
             for perms, _ in all_perms():
                 if user is not actual_user:
@@ -1532,7 +1530,7 @@ class TestRemoteFS(TestCase):
     def test_rmdir_as_root(self):
         os.seteuid(0)
         os.setegid(0)
-        for user in users:
+        for user in users[:2]:
             FnxFS = home/user.pw_name/'FnxFS'
             for path, dirs, files in FnxFS.walk():
                 for subdir in dirs:
@@ -1545,7 +1543,7 @@ class TestRemoteFS(TestCase):
     def test_rmdir_as_user(self):
         os.seteuid(actual_user_id)
         os.setegid(actual_user.pw_gid)
-        for user in users:
+        for user in users[:2]:
             FnxFS = home/user.pw_name/'FnxFS'
             for path, dirs, files in FnxFS.walk():
                 for subdir in dirs:
@@ -1558,7 +1556,7 @@ class TestRemoteFS(TestCase):
     def test_symlink_creation_as_root(self):
         os.seteuid(0)
         os.setegid(0)
-        for user in users:
+        for user in users[:2]:
             target = home/user.pw_name/'FnxFS/Quality Control/nothing_to_see_here.txt'
             source = Path('/usr/local/share/imaginary_friend')
             check_exception(OSError(95, 'no support'), source.symlink, target)
@@ -1566,7 +1564,7 @@ class TestRemoteFS(TestCase):
     def test_symlink_creation_as_user(self):
         os.seteuid(actual_user_id)
         os.setegid(actual_user.pw_gid)
-        for user in users:
+        for user in users[:2]:
             target = home/user.pw_name/'FnxFS/Quality Control/nothing_to_see_here.txt'
             source = Path('/usr/local/share/imaginary_friend')
             if user is actual_user:
@@ -1735,7 +1733,7 @@ class TestRemoteFS(TestCase):
                 (tomorrow1.toordinal() - epoch) * 24*60*60 + tomorrow1.hour*3600 + tomorrow1.minute*60 + tomorrow1.second,
                 (tomorrow2.toordinal() - epoch) * 24*60*60 + tomorrow2.hour*3600 + tomorrow2.minute*60 + tomorrow2.second,
                 )
-        for user in users:
+        for user in users[:2]:
             FnxFS = home/user.pw_name/'FnxFS'
             for path, dirs, files in FnxFS.walk():
                 entries = dirs + files
@@ -1775,7 +1773,7 @@ class TestRemoteFS(TestCase):
                 (tomorrow1.toordinal() - epoch) * 24*60*60 + tomorrow1.hour*3600 + tomorrow1.minute*60 + tomorrow1.second,
                 (tomorrow2.toordinal() - epoch) * 24*60*60 + tomorrow2.hour*3600 + tomorrow2.minute*60 + tomorrow2.second,
                 )
-        for user in users:
+        for user in users[:2]:
             FnxFS = home/user.pw_name/'FnxFS'
             for path, dirs, files in FnxFS.walk():
                 entries = dirs + files

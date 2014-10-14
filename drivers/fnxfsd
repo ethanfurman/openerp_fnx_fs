@@ -1123,7 +1123,7 @@ class FnxFS(object):
             logger.debug('*** lookup: %s', lookup)
             return lookup
         elements = lookup.elements
-        found = elements[0]
+        found = elements and elements[0] or ''
         for next_ele in elements[1:]:
             if found/next_ele not in folders:
                 logger.debug('*** failed: %s', found/next_ele)

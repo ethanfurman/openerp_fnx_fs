@@ -40,6 +40,10 @@ def main(live_daemon, verbose, *tests):
     else:
         daemon = devel_daemon
     generate_log = bool(tests)
+    if verbose:
+        print 'actual_user: ', actual_user.pw_name, actual_user_id, actual_user.pw_gid
+        print 'users: ', ', '.join(u.pw_name for u in users)
+        print
     try:
         # remove_dirs()
         create_dirs()

@@ -114,7 +114,7 @@ def dump_permissions(
     execfile(config, globals())
     server_ip = get_local_ip(openerp)
     s = socket(AF_INET, SOCK_STREAM)
-    s.connect((server_ip, 8068))
+    s.connect((server_ip, tcp_port))
     s.sendall('service:dump_permissions\nuser:%s' % (user, ))
     while True:
         data = s.recv(1024)
@@ -138,7 +138,7 @@ def dump_folders(
     execfile(config, globals())
     server_ip = get_local_ip(openerp)
     s = socket(AF_INET, SOCK_STREAM)
-    s.connect((server_ip, 8068))
+    s.connect((server_ip, tcp_port))
     s.sendall('service:dump_folders\nuser:%s' % (user, ))
     while True:
         data = s.recv(1024)
@@ -162,7 +162,7 @@ def dump_cache(
     execfile(config, globals())
     server_ip = get_local_ip(openerp)
     s = socket(AF_INET, SOCK_STREAM)
-    s.connect((server_ip, 8068))
+    s.connect((server_ip, tcp_port))
     s.sendall('service:dump_cache\nuser:%s' % (user, ))
     while True:
         data = s.recv(1024)
@@ -188,7 +188,7 @@ def find_path(
     execfile(config, globals())
     server_ip = get_local_ip(openerp)
     s = socket(AF_INET, SOCK_STREAM)
-    s.connect((server_ip, 8068))
+    s.connect((server_ip, tcp_port))
     s.sendall('service:find_path\nuser:%s\nfile_name:%s' % (user, file_name))
     while True:
         data = s.recv(1024)
@@ -204,7 +204,7 @@ def log_level(
         level,
         ):
     s = socket(AF_INET, SOCK_STREAM)
-    s.connect(('127.0.0.1', 8068))
+    s.connect(('127.0.0.1', tcp_port))
     s.sendall('service:log_level\nlevel:%d' % (level, ))
     while True:
         data = s.recv(1024)
@@ -218,13 +218,14 @@ def log_level(
         device=('path to mirror', REQUIRED, None, Path),
         mount=('where to put mirrored path', REQUIRED, None, Path),
         option=('file system options', MULTI),
-        config=('location of configuration file', OPTION, 'c', Path),
-        remote_root=('location on server to share as FnxFS', OPTION, 'r', Path),
-        shares_file=('file on server with external shares', OPTION, 's', Path),
-        pid_file=('pid file for daemon', OPTION, 'p', Path),
+        config=('location of configuration file', OPTION, None, Path),
+        remote_root=('location on server to share as FnxFS', OPTION, None, Path),
+        shares_file=('file on server with external shares', OPTION, None, Path),
+        pid_file=('pid file for daemon', OPTION, None, Path),
         foreground=('remain in foreground', FLAG, 'f'),
-        log=('additional (duplicate) log file', OPTION, 'l', Path),
+        log=('additional (duplicate) log file', OPTION, None, Path),
         verbose=('extra detail in log', FLAG, 'v'),
+        port=('port for mini-tcp server to use', OPTION, None, int),
         testing=('configure certain values to enable testing', FLAG),
         )
 @Alias('mount.fnxfs')
@@ -239,6 +240,7 @@ def fnxfsd(
         foreground=False,
         log='',
         verbose=False,
+        port=8068,
         testing=False,
         ):
 
@@ -278,7 +280,9 @@ def fnxfsd(
         fh.setLevel(logging.DEBUG)
         if foreground:
             console.setLevel(logging.DEBUG)
-    global server_delay, archive_okay
+    global server_delay, archive_okay, tcp_port
+    tcp_port = port
+    logging.warning('using port %d', port)
     if testing:
         server_delay = 0
         archive_okay = False
@@ -426,7 +430,7 @@ class TcpServer(threading.Thread):
         #server_ip = get_local_ip(openerp)
         while True:
             try:
-                server = SocketServer.TCPServer(('', 8068), RequestHandler)
+                server = SocketServer.TCPServer(('', tcp_port), RequestHandler)
                 server.serve_forever()
             except Exception:
                 logger.exception('error occured')
@@ -636,6 +640,8 @@ class FnxFS(object):
                     self.context.share_gid = entry.pw_gid
                     if self.context.uid == 0:
                         self.context.user = entry.pw_name
+                    if self.context.uid and self.context.uid != self.context.share_uid and len(elements) > 3:
+                        _no_access()
                     path = '/'.join(path.elements[3:])
                     if path:
                         path = self._remote_root/path

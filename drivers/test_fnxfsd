@@ -5,6 +5,7 @@ from path import Path
 from pwd import getpwall as get_system_users
 from grp import getgrall as get_system_groups
 from scription import *
+from socket import socket, AF_INET, SOCK_STREAM, error as SocketError
 from unittest import TestCase, main as test
 import functools
 import os
@@ -18,12 +19,14 @@ import types
 #####################
 
 @Script(
-        live_daemon=Spec('test the installed daemon', FLAG, remove=True),
+        live_daemon=Spec('test the installed daemon', FLAG, None, remove=True),
         verbose=Spec('more info on tests', FLAG),
+        port=Spec('port for daemon to use for mini-tcp server', OPTION, type=int, remove=True),
+        log=Spec('specific tests to log', MULTI, remove=True),
         tests=Spec('specific tests to run', OPTION),
         )
-def main(live_daemon, verbose, *tests):
-    global daemon, generate_log, root_password
+def main(live_daemon, verbose, log, port=8079, *tests):
+    global daemon, generate_log, root_password, tcp_port
     os.umask(0)
     if os.getuid() != 0 and os.geteuid() != 0:
         raise SystemExit('tests must be run as root')
@@ -39,7 +42,13 @@ def main(live_daemon, verbose, *tests):
         daemon = installed_daemon
     else:
         daemon = devel_daemon
-    generate_log = bool(tests)
+    generate_log = bool(not log and tests)
+    tcp_port = port
+    for method in log:
+        cls, name = method.split('.')
+        cls = globals()[cls]
+        method = getattr(cls, name)
+        setattr(cls, name, log_test(method))
     if verbose:
         print 'actual_user: ', actual_user.pw_name, actual_user_id, actual_user.pw_gid
         print 'users: ', ', '.join(u.pw_name for u in users)
@@ -1875,6 +1884,16 @@ def all_perms(suid=False):
                     for i in [0o1000, 0o2000, 0o4000]:
                         yield i | perms, x
 
+def change_log_level(level):
+    s = socket(AF_INET, SOCK_STREAM)
+    s.connect(('127.0.0.1', tcp_port))
+    s.sendall('service:log_level\nlevel:%d' % (level, ))
+    while True:
+        data = s.recv(1024)
+        if not data:
+            break
+    s.close()
+
 def check_exception(exception, callable, *args, **kwds):
     exc_type = type(exception)
     if exc_type is type:
@@ -1891,16 +1910,16 @@ def check_exception(exception, callable, *args, **kwds):
     except exc_type, exc:
         if errno is None or exc.errno == errno:
             return
-        raise AssertionError('%s raised, but with %r' % (exc_name, exc.args))
+        raise AssertionError('%r: %s raised, but with %r' % (callable, exc_name, exc.args))
     except:
         exc = sys.exc_info()[1]
         try:
             raised_name = exc.__class__.__name__
         except AttributeError:
             raised_name = str(exc)
-        raise AssertionError("%s expected, but %s%r raised" % (exc_name, raised_name, exc.args))
+        raise AssertionError("%r: %s expected, but %s%r raised" % (callable, exc_name, raised_name, exc.args))
     else:
-        raise AssertionError("no exception raised")
+        raise AssertionError("%r: no exception raised" % callable)
 
 def create_dirs():
     log_file = Path('/var/log/fnxfsd.log')
@@ -1931,6 +1950,7 @@ def create_dirs():
             '--remote_root', remote,
             '--shares_file', shares_file,
             '--pid_file', Path.getcwd()/'fnxfsd.pid',
+            '--port', str(tcp_port),
             '--testing', 
             ]
     if generate_log:
@@ -1984,6 +2004,16 @@ def get_test_users():
             else:
                 common_groups = new_common_groups
     users = users_in_same_group[:3]
+
+def log_test(test):
+    def logger(*args, **kwds):
+        change_log_level(10)
+        try:
+           test(*args, **kwds)
+        finally:
+           change_log_level(50)
+    logger.__name__ = test.__name__
+    return logger
 
 def remove_dirs():
     # return

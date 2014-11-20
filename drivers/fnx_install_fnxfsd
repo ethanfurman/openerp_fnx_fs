@@ -1,0 +1,37 @@
+#!/usr/local/bin/suid-python
+
+from path import Path
+
+fstab = Path('/etc/fstab')
+daemon = Path('/usr/local/sbin/fnxfsd')
+credentials = Path('/usr/local/etc/fnxfs_credentials')
+
+daemon.chown(0, 0)
+daemon.chmod(0o760)
+try:
+    daemon.symlink('/sbin/mount.fnxfs')
+except OSError:
+    pass
+
+credentials.chown(0, 0)
+credentials.chmod(0o660)
+
+with open(fstab, 'r+') as disk_table:
+    lines = disk_table.readlines()
+    needs_fnxfs_home = True
+    for i, line in enumerate(lines):
+        if line.startswith('LABEL=HOME'):
+            dev, mtpt, typ, opt, dump, pas = range(6)
+            segments = line.split()
+            segments[mtpt] = '/fnxfs_home'
+            if 'bootwait' not in segments[opt]:
+                segments[opt] = segments[opt] + ',bootwait'
+            line = '      '.join(segments[:6]) + ' '.join(segments[6:]) + '\n'
+            lines[i] = line
+        elif line.startswith('/fnxfs_home'):
+            needs_fnxfs_home = False
+    if needs_fnxfs_home:
+        lines.append('/fnxfs_home   /home      fnxfs\n')
+    disk_table.seek(0)
+    disk_table.write(''.join(lines))
+

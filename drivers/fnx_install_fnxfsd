@@ -1,4 +1,11 @@
-#!/usr/local/bin/suid-python
+#!/usr/bin/env python
+
+# first check to make sure all needed modules are in place
+for module in ('path', 'dbf', 'enum', 'pandaemonium', 'scription', 'VSS'):
+    try:
+        __import__(module)
+    except:
+        raise SystemExit('ABORT:  unable to import module <%s>' % module)
 
 from path import Path
 
@@ -6,6 +13,12 @@ fstab = Path('/etc/fstab')
 daemon = Path('/usr/local/sbin/fnxfsd')
 credentials = Path('/usr/local/etc/fnxfs_credentials')
 
+# now check for daemon itself, and credentials file
+for file in (daemon, credentials):
+    if not file.exists():
+        raise SystemExit("ABORT:  needed file '%s' is missing" % file)
+
+# change ownership and permissions
 daemon.chown(0, 0)
 daemon.chmod(0o760)
 try:
@@ -16,6 +29,17 @@ except OSError:
 credentials.chown(0, 0)
 credentials.chmod(0o660)
 
+# check for values in credentials
+try:
+    execfile(credentials)
+except:
+    raise SystemExit("unable to read file '%s' (maybe missing values?" % credentials)
+else:
+    for setting in ('server_user', 'server_pass', 'openerp'):
+        if not globals().get(setting):
+            raise SystemExit('setting %r not present in %r' % (setting, credentials))
+
+# adjust file system table
 with open(fstab, 'r+') as disk_table:
     lines = disk_table.readlines()
     needs_fnxfs_home = True

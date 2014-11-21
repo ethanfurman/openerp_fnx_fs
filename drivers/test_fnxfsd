@@ -18,14 +18,14 @@ import types
 # set up and prepare
 #####################
 
-@Script(
+@Command(
         live_daemon=Spec('test the installed daemon', FLAG, None, remove=True),
         verbose=Spec('more info on tests', FLAG),
         port=Spec('port for daemon to use for mini-tcp server', OPTION, type=int, remove=True),
         log=Spec('specific tests to log', MULTI, remove=True),
         tests=Spec('specific tests to run', OPTION),
         )
-def main(live_daemon, verbose, log, port=8079, *tests):
+def test_fnxfsd(live_daemon, verbose, log, port=8079, *tests):
     global daemon, generate_log, root_password, tcp_port
     os.umask(0)
     if os.getuid() != 0 and os.geteuid() != 0:

@@ -1957,6 +1957,11 @@ def create_dirs():
         command.append('--verbose')
     subprocess.call(' '.join(command), shell=True)
     time.sleep(2)
+    try:
+        output = check_output(['df'])
+    except subprocess.CalledProcessError:
+        exc = sys.exc_info()[1]
+        output = exc.output
     if 'FnxFS' not in check_output(['df']):
         raise SystemExit('unable to mount daemon')
 

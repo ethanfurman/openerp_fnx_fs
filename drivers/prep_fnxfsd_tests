@@ -13,25 +13,39 @@ if platform.uname()[1] == 'OETest':
 else:
     test_location = Path('/root/test/fnxfsd/')
 
-live_daemon = Path('/usr/local/sbin/fnxfsd')
+live_daemon = Path('/usr/local/sbin')
 devel_daemon = Path('./fnxfsd')
 
 @Command(
         password=('prompt for root password', FLAG),
         test_path=('location to run tests (must be root owned)', OPTION, 't', Path),
+        live=('use the installed daemon for testing', FLAG, 'l'),
         )
-def prep_tests(password, test_path=test_location):
+def prep_fnxfsd_tests(live, password, test_path=test_location):
     if os.getuid() != 0 and os.geteuid() != 0:
         raise SystemExit('test prep must be run as root')
-    source = Path.getcwd() * Path(sys.modules['__main__'].__file__).path
-    backup = source/'backup'
+    devel = Path.getcwd() * Path(sys.modules['__main__'].__file__).path
+    if live:
+        source = live_daemon
+    else:
+        source = devel
+    backup = devel/'backup'
     owner = source.stat('fnxfsd').st_uid
     if not backup.exists():
         backup.mkdir()
     if not test_path.exists():
         test_path.mkdirs()
+    original_test_path_perms = []
+    current = '/'
+    for partial in test_path.elements:
+        current /= partial
+        mode = current.stat().st_mode
+        original_test_path_perms.append(mode)
+        mode |= 0o005
+        current.chmod(mode)
     test_path.remove('*')
-    source.copy(['fnxfsd', 'test_fnxfsd'], test_path)
+    source.copy(['fnxfsd', ], test_path)
+    devel.copy(['test_fnxfsd', ], test_path)
     test_path.chown(0, 0, '*fnxfsd')
     test_path.chmod(0o740, 'fnxfsd')
     test_path.chmod(0o7755, 'test_fnxfsd')
@@ -56,14 +70,19 @@ def prep_tests(password, test_path=test_location):
             'type "exit" when done (twice if you "su"ed ;)\n'
             )
     os.system(os.environ['SHELL'])
+    current = '/'
+    for partial, mode in zip(test_path.elements, original_test_path_perms):
+        current /= partial
+        current.chmod(mode)
     answer = '<none>'
     while answer not in 'yn':
         answer = raw_input('copy files back? ')
         answer = answer[:1].lower()
     if answer == 'y':
-        test_path.copy('*fnxfsd', source)
-        source.chmod(0o660, '*fnxfsd')
-        source.chown(owner, owner, '*fnxfsd')
+        test_path.copy('fnxfsd', source)
+        test_path.copy('test_fnxfsd', devel)
+        devel.chmod(0o660, '*fnxfsd')
+        devel.chown(owner, owner, '*fnxfsd')
     else:
         test_path.copy('*fnxfsd', backup)
     if test_path.exists('success'):

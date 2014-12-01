@@ -12,9 +12,11 @@ from path import Path
 fstab = Path('/etc/fstab')
 daemon = Path('/usr/local/sbin/fnxfsd')
 credentials = Path('/usr/local/etc/fnxfs_credentials')
+suid_python = Path('/usr/local/bin/suid-python')
+rc_local = Path('/etc/rc.local')
 
-# now check for daemon itself, and credentials file
-for file in (daemon, credentials):
+# now check for daemon itself, the credentials file, and suid-python
+for file in (daemon, credentials, suid_python):
     if not file.exists():
         raise SystemExit("ABORT:  needed file '%s' is missing" % file)
 
@@ -28,6 +30,9 @@ except OSError:
 
 credentials.chown(0, 0)
 credentials.chmod(0o660)
+
+suid_python.chown(0, 0)
+suid_python.chmod(0o7555)
 
 # check for values in credentials
 try:
@@ -59,3 +64,19 @@ with open(fstab, 'r+') as disk_table:
     disk_table.seek(0)
     disk_table.write(''.join(lines))
 
+# adjust rc.local
+with rc_local.open() as rcl:
+    rc_local_lines = rcl.readlines()
+needs_update = True
+for line in rc_local_lines:
+    if line.strip() == '/bin/mount /home || /bin/true':
+        needs_update = False
+if needs_update:
+    for i, line in enumerate(rc_local_lines):
+        if line.startswith('#'):
+            continue
+        rc_local_lines.insert(i, '/bin/mount /home || /bin/true\n')
+        rc_local_lines.insert(i, '\n')
+        break
+    with rc_local.open('w') as rcl:
+        rcl.write(''.join(rc_local_lines))

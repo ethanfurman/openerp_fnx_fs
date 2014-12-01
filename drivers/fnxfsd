@@ -301,6 +301,10 @@ def fnxfsd(
             threads = True
         elif opt == 'nothreads':
             threads = False
+        elif opt == 'noauto':
+            pass
+        elif opt == '_netdev':
+            pass
         else:
             raise ValueError('unknown option: %r' % opt)
 

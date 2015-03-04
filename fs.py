@@ -24,10 +24,10 @@ openerp_ids = tuple(pwd.getpwnam('openerp')[2:4])
 
 CONFIG_ERROR = "Configuration not set; check Settings --> Configuration --> FnxFS --> %s."
 
-fs_root = Path('/var/openerp/fnxfs/')
-archive_root = Path('/var/openerp/fnxfs_archive/')
-permissions_file = Path('/var/openerp/fnxfs.permissions')
-mount_file = Path('/etc/openerp/fnxfs.mount')
+fs_root = Path(u'/var/openerp/fnxfs/')
+archive_root = Path(u'/var/openerp/fnxfs_archive/')
+permissions_file = Path(u'/var/openerp/fnxfs.permissions')
+mount_file = Path(u'/etc/openerp/fnxfs.mount')
 
 execfile('/etc/openerp/fnxfs_credentials')
 
@@ -132,7 +132,7 @@ def write_permissions(oe, cr):
         files = fnxfs_file.browse(cr, SUPERUSER)
         fnx_fs_users = [u.login for u in res_users.browse(cr, SUPERUSER, [('groups_id.category_id.name','=','FnxFS')])]
         lines = []
-        root = Path('/')
+        root = Path(u'/')
         for folder in folders:
             seen = set()
             if folder.collaborative:
@@ -165,7 +165,7 @@ def write_permissions(oe, cr):
             if file.perm_type == 'inherit':
                 continue
             folder = file.folder_id.path
-            path = Path('/')/folder/file.shared_as
+            path = Path(u'/')/folder/file.shared_as
             read_write = set()
             # default is deny all
             lines.append('all:none:%s' % path)

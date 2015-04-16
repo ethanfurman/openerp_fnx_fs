@@ -682,17 +682,17 @@ class fnx_fs_file(osv.Model):
                 if len(elements) < 3 or elements[2] != user:
                     raise ERPError(
                             'Unshareable File',
-                            'Only files in your home directory or its subfolders can be shared.',
+                            'Only files in your home directory or its subfolders can be shared.\n(%s)' % path,
                             )
                 elif len(elements) > 3 and elements[3] == 'FnxFS':
                     raise ERPError(
                             'Unshareable File',
-                            'Cannot share files directly from the FnxFS shared directory.',
+                            'Cannot share files directly from the FnxFS shared directory.\n(%s)' % path,
                             )
                 file_path = values['full_name'] = path/file_name
             copy_cmd = [
                     '/usr/bin/sshpass', '-e',
-                    '/usr/bin/scp', 'root@%s:"%s"' % (ip, file_path),
+                    '/usr/bin/scp', '-o', 'StrictHostKeyChecking=no', 'root@%s:"%s"' % (ip, file_path),
                     fs_root/folder/shared_as,
                     ]
             try:

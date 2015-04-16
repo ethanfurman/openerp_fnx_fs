@@ -1471,9 +1471,6 @@ class FnxFS(object):
 class Accessed(object):
     """
     Keep track of files that have been seen (readdir).
-
-    files/folders that start with a '.' and are rooted in the home folder can
-    be ignored.
     """
 
     max_size = 5192
@@ -1489,11 +1486,9 @@ class Accessed(object):
         add, or update, files into the cache
         """
         elements = path.elements
-        if len(elements) >= 4 and elements[3][0] == '.':
-            # ignore hidden files and folders
-            return
-        elif len(elements) == 3:
-            files = [f for f in files if f[0] != '.']
+        if path.startswith(self._local_root):
+            elements.pop(2)
+            path = reduce(op.div, elements)
         with self.lock:
             try:
                 self.paths[user].remove(path)

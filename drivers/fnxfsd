@@ -3,7 +3,7 @@ from __future__ import print_function
 
 # this must happen first!
 from pandaemonium import Daemon, FileTracker, PidLockFile, LockError, AlreadyLocked
-from path import Path
+from antipathy import Path
 import logging
 from logging import FileHandler
 
@@ -19,25 +19,25 @@ from logging import FileHandler
 #
 ###############################################################################
 
-default_log = Path('/var/log/fnxfsd.log')
-
+DEFAULT_LOG = Path('/var/log/fnxfsd.log')
 
 FileTracker.install()
 
 # this must happen second!
 import sys
-target = 'python%s.%s' % sys.version_info[:2]
+TARGET = 'python%s.%s' % sys.version_info[:2]
 try:
-    sys.path.remove('/usr/local/lib/%s/dist-packages' % target)
+    sys.path.remove('/usr/local/lib/%s/dist-packages' % TARGET)
 except ValueError:
     pass
-sys.path.insert(0, '/usr/local/lib/%s/dist-packages' % target)
+sys.path.insert(0, '/usr/local/lib/%s/dist-packages' % TARGET)
 
 # okay
 
 import Crypto
 import operator as op
 import os
+import scription
 import SocketServer
 import threading
 import traceback
@@ -47,7 +47,6 @@ from dbf import DateTime
 from errno import *
 from grp import getgrall as get_all_groups
 from pwd import getpwuid, getpwnam as get_pw_entry
-from Queue import Queue
 from scription import Alias, Command, Run, FLAG, MULTI, OPTION, REQUIRED
 from socket import socket, AF_INET, SOCK_STREAM, error as SocketError
 from stat import S_ISDIR as is_dir, S_ISLNK as is_link, ST_MODE, ST_UID, ST_GID
@@ -60,47 +59,13 @@ from VSS.utils import get_local_ip
 from VSS.xfuse import FUSE, Operations, FuseOSError, ENOTSUP
 from VSS.xfuse import fuse_get_context as context
 
-try:
-    from subprocess import check_output, CalledProcessError
-except ImportError:
-    # taken from the 2.7 lib
-    class CalledProcessError(Exception):
-        """This exception is raised when a process run by check_call() or
-        check_output() returns a non-zero exit status.
-        The exit status will be stored in the returncode attribute;
-        check_output() will also store the output in the output attribute.
-        """
-        def __init__(self, returncode, cmd, output=None):
-            self.returncode = returncode
-            self.cmd = cmd
-            self.output = output
-        def __str__(self):
-            return "Command '%s' returned non-zero exit status %d" % (self.cmd, self.returncode)
+VERSION = '1.1.beta3'
 
-    def check_output(*popenargs, **kwargs):
-        r"""Run command with arguments and return its output as a byte string.
+MOUNT_FILE = Path('/etc/openerp/fnxfs.mount')
+PID_FILE = Path('/var/run/fnxfsd.pid')
+REMOTE_ROOT = Path('/var/openerp/fnxfs/')
+TCP_PORT = 8068
 
-        If the exit code was non-zero it raises a CalledProcessError.  The
-        CalledProcessError object will have the return code in the returncode
-        attribute and output in the output attribute.
-        """
-        if 'stdout' in kwargs:
-            raise ValueError('stdout argument not allowed, it will be overridden.')
-        process = Popen(stdout=PIPE, *popenargs, **kwargs)
-        output, unused_err = process.communicate()
-        retcode = process.poll()
-        if retcode:
-            cmd = kwargs.get("args")
-            if cmd is None:
-                cmd = popenargs[0]
-            raise CalledProcessError(retcode, cmd, output=output)
-        return output
-
-version = '1.0.rc1'
-
-mount_file = Path('/etc/openerp/fnxfs.mount')
-pid_file = Path('/var/run/fnxfsd.pid')
-remote_root = Path('/var/openerp/fnxfs/')
 
 @Command(
         user=('user to check on', ),
@@ -116,7 +81,7 @@ def dump_permissions(
     execfile(config, globals())
     server_ip = get_local_ip(openerp)
     s = socket(AF_INET, SOCK_STREAM)
-    s.connect((server_ip, tcp_port))
+    s.connect((server_ip, TCP_PORT))
     s.sendall('service:dump_permissions\nuser:%s' % (user, ))
     while True:
         data = s.recv(1024)
@@ -140,7 +105,7 @@ def dump_folders(
     execfile(config, globals())
     server_ip = get_local_ip(openerp)
     s = socket(AF_INET, SOCK_STREAM)
-    s.connect((server_ip, tcp_port))
+    s.connect((server_ip, TCP_PORT))
     s.sendall('service:dump_folders\nuser:%s' % (user, ))
     while True:
         data = s.recv(1024)
@@ -164,7 +129,7 @@ def dump_cache(
     execfile(config, globals())
     server_ip = get_local_ip(openerp)
     s = socket(AF_INET, SOCK_STREAM)
-    s.connect((server_ip, tcp_port))
+    s.connect((server_ip, TCP_PORT))
     s.sendall('service:dump_cache\nuser:%s' % (user, ))
     while True:
         data = s.recv(1024)
@@ -190,7 +155,7 @@ def find_path(
     execfile(config, globals())
     server_ip = get_local_ip(openerp)
     s = socket(AF_INET, SOCK_STREAM)
-    s.connect((server_ip, tcp_port))
+    s.connect((server_ip, TCP_PORT))
     s.sendall('service:find_path\nuser:%s\nfile_name:%s' % (user, file_name))
     while True:
         data = s.recv(1024)
@@ -206,7 +171,7 @@ def log_level(
         level,
         ):
     s = socket(AF_INET, SOCK_STREAM)
-    s.connect(('127.0.0.1', tcp_port))
+    s.connect(('127.0.0.1', TCP_PORT))
     s.sendall('service:log_level\nlevel:%d' % (level, ))
     while True:
         data = s.recv(1024)
@@ -236,15 +201,19 @@ def fnxfsd(
         mount,
         option,
         config='/usr/local/etc/fnxfs_credentials',
-        remote_root=remote_root,
-        shares_file=mount_file,
-        pid_file=pid_file,
+        remote_root=REMOTE_ROOT,
+        shares_file=MOUNT_FILE,
+        pid_file=PID_FILE,
         foreground=False,
         log='',
         verbose=False,
         port=8068,
         testing=False,
         ):
+
+    device = Path(device.encode(scription.LOCALE_ENCODING))
+    mount = Path(mount.encode(scription.LOCALE_ENCODING))
+    remote_root = Path(remote_root.encode(scription.LOCALE_ENCODING))
 
     execfile(config, globals())
 
@@ -261,37 +230,35 @@ def fnxfsd(
         with open('/var/log/start-fnxfsd', 'a') as l:
             l.write('%s --> %s  [not able to acquire]\n' % (DateTime.now(), sys.argv))
         raise SystemExit('unable to acquire lock')
-    global logger, fh, console
-    logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)
-    fh = FileHandler(
-            filename=default_log,
+    global LOGGER, FH, CONSOLE, SERVER_DELAY, ARCHIVE_OKAY, TCP_PORT
+    LOGGER = logging.getLogger()
+    LOGGER.setLevel(logging.DEBUG)
+    FH = FileHandler(
+            filename=DEFAULT_LOG,
             encoding='utf8',
             )
-    fh.setLevel(logging.WARNING)
-    fh.setFormatter(logging.Formatter("%(asctime)-30s %(name)-40s %(message)s"))
-    logger.addHandler(fh)
-    logger = logging.getLogger('fnxfsd')
+    FH.setLevel(logging.WARNING)
+    FH.setFormatter(logging.Formatter("%(asctime)-30s %(name)-40s %(message)s"))
+    LOGGER.addHandler(FH)
+    LOGGER = logging.getLogger('fnxfsd')
     if foreground:
-        global console
-        console = logging.StreamHandler()
-        console.setFormatter(logging.Formatter("%(message)s"))
-        console.setLevel(logging.INFO)
-        logger.addHandler(console)
+        CONSOLE = logging.StreamHandler()
+        CONSOLE.setFormatter(logging.Formatter("%(message)s"))
+        CONSOLE.setLevel(logging.INFO)
+        LOGGER.addHandler(CONSOLE)
     if verbose:
-        fh.setLevel(logging.DEBUG)
+        FH.setLevel(logging.DEBUG)
         if foreground:
-            console.setLevel(logging.DEBUG)
-    global server_delay, archive_okay, tcp_port
-    tcp_port = port
+            CONSOLE.setLevel(logging.DEBUG)
+    TCP_PORT = port
     logging.warning('using port %d', port)
     if testing:
-        server_delay = 0
-        archive_okay = False
+        SERVER_DELAY = 0
+        ARCHIVE_OKAY = False
     else:
-        server_delay = 1
-        archive_okay = True
-    logger.info('~~~ config file: %s', config)
+        SERVER_DELAY = 1
+        ARCHIVE_OKAY = True
+    LOGGER.info('~~~ config file: %s', config)
     read_write = True
     threads = False
     for opt in option:
@@ -321,7 +288,7 @@ def fnxfsd(
             # hard_remove=True,
             #follow_symlinks=True,
             )
-    logger.debug('*** fuse args: %s', fuse_kwargs)
+    LOGGER.debug('*** fuse args: %s', fuse_kwargs)
 
     if foreground:
         pid_lock.seal()
@@ -329,7 +296,7 @@ def fnxfsd(
         daemon = Daemon()
         daemon.inherit_files = [ fn for fn in (
                 FileTracker.active('/dev/urandom', None),
-                FileTracker.active(default_log, None),
+                FileTracker.active(DEFAULT_LOG, None),
                 ) if fn is not None ]
         daemon.pid_file = pid_lock
         daemon.uid = 0
@@ -363,33 +330,33 @@ class RequestHandler(SocketServer.BaseRequestHandler):
     folders = None
 
     def handle(self):
-        logger.info('handling: %s', self.client_address)
+        LOGGER.info('handling: %s', self.client_address)
         request = self.request.recv(1024).strip().split('\n')
-        logger.info('request: %s', request)
+        LOGGER.info('request: %s', request)
         try:
             params = dict([line.split(':') for line in request])
             func = getattr(self, 'do_' + params.pop('service'))
         except ValueError, KeyError:
             exc_type, exc, exc_tb = sys.exc_info()
             result = ''.join(traceback.format_exception(exc_type, exc, exc_tb))
-            logger.debug(result)
+            LOGGER.debug(result)
             self.request.sendall('error:EPROTO\n0\n' + result)
         else:
             try:
-                logger.debug(params)
+                LOGGER.debug(params)
                 result = func(**params)
             except TypeError:
                 exc_type, exc, exc_tb = sys.exc_info()
                 result = ''.join(traceback.format_exception(exc_type, exc, exc_tb))
-                logger.debug(result)
+                LOGGER.debug(result)
                 self.request.sendall('error:EPROTO\n1\n' + result)
             except Exception:
                 exc_type, exc, exc_tb = sys.exc_info()
                 result = ''.join(traceback.format_exception(exc_type, exc, exc_tb))
-                logger.debug(result)
+                LOGGER.debug(result)
                 self.request.sendall('exception:\n' + result)
             else:
-                logger.info('result: %s', result)
+                LOGGER.info('result: %s', result)
                 if result is None:
                     self.request.sendall('error:ENOENT')
                 else:
@@ -419,8 +386,7 @@ class RequestHandler(SocketServer.BaseRequestHandler):
         return '\n'.join(result)
 
     def do_log_level(self, level):
-        global fh
-        fh.setLevel(int(level))
+        FH.setLevel(int(level))
         return self.client_address
 
 
@@ -433,14 +399,14 @@ class TcpServer(threading.Thread):
     allow_reuse_address = True
 
     def run(self):
-        logger.info('starting tcp server')
+        LOGGER.info('starting tcp server')
         #server_ip = get_local_ip(openerp)
         while True:
             try:
-                server = SocketServer.TCPServer(('', tcp_port), RequestHandler)
+                server = SocketServer.TCPServer(('', TCP_PORT), RequestHandler)
                 server.serve_forever()
             except Exception:
-                logger.exception('error occured')
+                LOGGER.exception('error occured')
                 sleep(45)
 
 
@@ -487,30 +453,30 @@ def check_rwx(file_stat, mode, context, global_read_write):
     grw_mask = (0o555, 0o777)[global_read_write]
     file_perm = file_stat[ST_MODE] & grw_mask
     sticky_dir = file_stat[ST_MODE] & 0o2000
-    logger.debug('--- perm %s (global read_write: %s)', oct(file_perm), global_read_write)
-    logger.debug('---       -uid-  -gid-')
-    logger.debug('--- file  %5d  %5d', file_stat[ST_UID], file_stat[ST_GID])
-    logger.debug('--- user  %5d  %5d', context.uid, context.gid)
+    LOGGER.debug('--- perm %s (global read_write: %s)', oct(file_perm), global_read_write)
+    LOGGER.debug('---       -uid-  -gid-')
+    LOGGER.debug('--- file  %5d  %5d', file_stat[ST_UID], file_stat[ST_GID])
+    LOGGER.debug('--- user  %5d  %5d', context.uid, context.gid)
     user, group, other = 0, 0, 0
     if context.uid == file_stat[ST_UID]:
-        logger.debug('*** checking owner')
+        LOGGER.debug('*** checking owner')
         user = (file_perm & 0o700) >> 6
-        logger.debug('*** user -> %d', user)
-        logger.debug('*** user & mode -> %d', user & mode)
+        LOGGER.debug('*** user -> %d', user)
+        LOGGER.debug('*** user & mode -> %d', user & mode)
         # if user & mode == mode:
         #     return context.uid, context.gid, sticky_dir, file_stat[ST_GID]
     if context.gid == file_stat[ST_GID]:
-        logger.debug('*** checking group')
+        LOGGER.debug('*** checking group')
         group = (file_perm & 0o070) >> 3
-        logger.debug('*** group -> %d', group)
-        logger.debug('*** group & mode -> %d', group & mode)
+        LOGGER.debug('*** group -> %d', group)
+        LOGGER.debug('*** group & mode -> %d', group & mode)
         # if group & mode == mode:
         #     return context.uid, context.gid, sticky_dir, file_stat[ST_GID]
     # if context.uid != file_stat[ST_UID] and context.gid != file_stat[ST_GID]:
-    logger.debug('*** checking world')
+    LOGGER.debug('*** checking world')
     other = file_perm & 0o007
-    logger.debug('*** other -> %d', other)
-    logger.debug('*** other & mode -> %d', other & mode)
+    LOGGER.debug('*** other -> %d', other)
+    LOGGER.debug('*** other & mode -> %d', other & mode)
         # if other & mode == mode:
         #     return context.uid, context.gid, sticky_dir, file_stat[ST_GID]
     if (user | group | other) & mode == mode:
@@ -527,8 +493,8 @@ def possibly_archive(sftp, written_files, path):
     # if data was ever written to 'path', archive it now
     if path in written_files:
         written_files.remove(path)
-        logger.info('--- archiving %s', path)
-        if archive_okay:
+        LOGGER.info('--- archiving %s', path)
+        if ARCHIVE_OKAY:
             stdin, stdout, stderr = sftp.exec_command('/usr/local/bin/fnxfs archive "%s"' % path)
             data = []
             while True:
@@ -538,7 +504,7 @@ def possibly_archive(sftp, written_files, path):
                 data.append(text)
             if data:
                 for line in ''.join(data).split('\n'):
-                    logger.error(line.strip())
+                    LOGGER.error(line.strip())
 
 
 class FnxFS(object):
@@ -594,12 +560,12 @@ class FnxFS(object):
         if now - self._last_attempt < 90:
             return False
         self._last_attempt = now
-        logger.info('connecting as %s to %s', self._server_user, self._host)
+        LOGGER.info('connecting as %s to %s', self._server_user, self._host)
         try:
             self._client.connect(self._host, username=self._server_user, password=self._server_pass, timeout=5)
         except Exception:
             exc = sys.exc_info()[1]
-            logger.exception('failed to connect with server')
+            LOGGER.exception('failed to connect with server')
             self._sftp = None
             return False
         else:
@@ -607,18 +573,18 @@ class FnxFS(object):
             return True
 
     def _server_connect(self):
-        logger.info('connecting as root to %s', self._host)
+        LOGGER.info('connecting as root to %s', self._host)
         try:
             self._server.connect(self._host, username='root', password=self._server_root, timeout=5)
         except Exception:
             exc = sys.exc_info()[1]
-            logger.exception('failed to connect with server')
+            LOGGER.exception('failed to connect with server')
             return False
         else:
             return True
 
     def __call__(self, op, path, *args):
-        logger.info('--> %s %s %s', op, path, repr(args)[:200])
+        LOGGER.info('--> %s %s %s', op, path, repr(args)[:200])
         ret = '[unhandled exception]'
         flush = False
         self.context = threading.local()
@@ -640,9 +606,9 @@ class FnxFS(object):
                         if not self._connect():
                             raise OSError(ENOLINK, 'remote link down')
                     # save share uid/gid
-                    logger.debug('actual user: %r', user)
+                    LOGGER.debug('actual user: %r', user)
                     entry = get_pw_entry(elements[1])
-                    logger.debug('effective user: %r', entry.pw_name)
+                    LOGGER.debug('effective user: %r', entry.pw_name)
                     self.context.share_uid = entry.pw_uid
                     self.context.share_gid = entry.pw_gid
                     if self.context.uid == 0:
@@ -658,11 +624,11 @@ class FnxFS(object):
                 else:
                     path = self._local_root/path
                     op = 'local_' + op
-            logger.debug('context ->  uid:%r, gid:%r, name:%r', self.context.uid, self.context.gid, self.context.user)
+            LOGGER.debug('context ->  uid:%r, gid:%r, name:%r', self.context.uid, self.context.gid, self.context.user)
             func = getattr(self, op)
             if func is None:
                 raise OSError(EFAULT, 'bad operation')
-            logger.debug('--- %s', path)
+            LOGGER.debug('--- %s', path)
             ret = func(path, *args)
             return ret
         except OSError:
@@ -673,11 +639,11 @@ class FnxFS(object):
             exc_type, exc, exc_tb = sys.exc_info()
             ret = str(exc)
             flush = True
-            logger.exception('error occured')
+            LOGGER.exception('error occured')
             raise
         finally:
-            logger.info('<-- %s %s', op, repr(ret)[:200])
-            logger.info('')
+            LOGGER.info('<-- %s %s', op, repr(ret)[:200])
+            LOGGER.info('')
 
     def __getattr__(self, name):
         """
@@ -694,7 +660,7 @@ class FnxFS(object):
             current_state = self._sftp.stat(self._permission_file)
         except Exception:
             try:
-                logger.info('connection dropped, attempting to reestablish')
+                LOGGER.info('connection dropped, attempting to reestablish')
                 self._connect()
                 current_state = self._sftp.stat(self._permission_file)
             except (SSHException, EOFError):
@@ -702,7 +668,7 @@ class FnxFS(object):
                 raise OSError(ENOLINK, 'remote link down')
         user = self.context.user
         if current_state != self._permission_state or user in self._allowed_users and user not in self._active_users:
-            logger.debug('>>> reading permissions for %r...', user)
+            LOGGER.debug('>>> reading permissions for %r...', user)
             with self._sftp.open(self._shares_file) as data:
                 mounts = data.readlines()
             self._mount = set()
@@ -716,9 +682,12 @@ class FnxFS(object):
             with self._sftp.open(self._permission_file) as data:
                 permissions = iter(data.readlines())
             self._allowed_users = set(next(permissions).strip().split(','))
-            logger.debug('>>>   users: %r', self._allowed_users)
+            LOGGER.debug('>>>   users: %r', self._allowed_users)
             # if current user does not have at least Consumer privilege, we're done
             if user not in self._allowed_users:
+                # remove symbolic link in local fs
+                symlink = self._local_root / user / 'FnxFS'
+                symlink.unlink()
                 return
             self._active_users = set([user])
             self._file_permissions[user] = user_permissions = {}
@@ -728,11 +697,13 @@ class FnxFS(object):
             user_permissions[Path('/')] = 0
             user_folders[Path('')]
             user_permissions[Path('')] = 0
+            # add the symlink
+            (self._home/user/'FnxFS').symlink(self._local_root/user/'FnxFS')
             # process file
             target = user + ':'
             for line in permissions:
                 line = line.strip()
-                logger.debug('>>>   %s', line)
+                LOGGER.debug('>>>   %s', line)
                 if not line.startswith((target, 'all:')):
                     continue
                 oe_user, perm, fn = line.split(':')
@@ -741,27 +712,27 @@ class FnxFS(object):
                 path = fn.path.strip('/')
                 ep = user_permissions.get(file, 0)
                 pp = user_permissions.get(path, 0)
-                logger.debug('>>> %s %s %s', path, file, ep)
+                LOGGER.debug('>>> %s %s %s', path, file, ep)
                 if perm == 'none':
                     user_permissions[file] = ep | 0o0
                     user_permissions[path] = pp | 0o0
-                    logger.debug('  > %s %o', file, user_permissions[file])
-                    logger.debug('  > %s %o', path, user_permissions[path])
+                    LOGGER.debug('  > %s %o', file, user_permissions[file])
+                    LOGGER.debug('  > %s %o', path, user_permissions[path])
                 elif perm == 'read' or perm in ('create', 'write') and not self._read_write:
                     user_permissions[file] = ep | 0o400
                     user_permissions[path] = pp | 0o500
-                    logger.debug('  > %s %o', file, user_permissions[file])
-                    logger.debug('  > %s %o', path, user_permissions[path])
+                    LOGGER.debug('  > %s %o', file, user_permissions[file])
+                    LOGGER.debug('  > %s %o', path, user_permissions[path])
                 elif perm == 'write' and self._read_write:
                     user_permissions[file] = ep | 0o600
                     user_permissions[path] = pp | 0o500
-                    logger.debug('  > %s %o', file, user_permissions[file])
-                    logger.debug('  > %s %o', path, user_permissions[path])
+                    LOGGER.debug('  > %s %o', file, user_permissions[file])
+                    LOGGER.debug('  > %s %o', path, user_permissions[path])
                 elif perm == 'create' and self._read_write:
                     user_permissions[file] = ep | 0o600
                     user_permissions[path] = pp | 0o700
-                    logger.debug('  > %s %o', file, user_permissions[file])
-                    logger.debug('  > %s %o', path, user_permissions[path])
+                    LOGGER.debug('  > %s %o', file, user_permissions[file])
+                    LOGGER.debug('  > %s %o', path, user_permissions[path])
                 else:
                     raise FuseOSError('Corrupted permissions file')
                 user_folders[path].add(file.filename)
@@ -778,8 +749,8 @@ class FnxFS(object):
                         stem /= dir
                     user_folders[stem].add(path.filename)
             for folder in user_folders:
-                logger.debug('<<< %s [%o]: %r', folder, user_permissions[folder], user_folders[folder])
-                logger.debug('<-> %s' % ', '.join(['%s %o' % (file, user_permissions[folder/file]) for file in user_folders[folder] if file not in user_folders]))
+                LOGGER.debug('<<< %s [%o]: %r', folder, user_permissions[folder], user_folders[folder])
+                LOGGER.debug('<-> %s' % ', '.join(['%s %o' % (file, user_permissions[folder/file]) for file in user_folders[folder] if file not in user_folders]))
                 if user_permissions[folder]:
                     user_permissions[folder/'README'] = 0o400
             self._permission_state = current_state
@@ -839,17 +810,17 @@ class FnxFS(object):
         # ETXTBSY
         #       Write access was requested to an executable which is being executed.
         #
-        logger.debug('--- checking for %03o in %s', mode, path)
+        LOGGER.debug('--- checking for %03o in %s', mode, path)
         file_stat = os.stat(path)
-        logger.debug('--- st_mode: %o', file_stat[ST_MODE])
+        LOGGER.debug('--- st_mode: %o', file_stat[ST_MODE])
         sticky_dir = file_stat[ST_MODE] & 0o2000
         if self.context.uid == 0:
-            logger.debug('context is 0')
+            LOGGER.debug('context is 0')
             # success if root, unless regular file without X, and X is requested
             if not is_dir(file_stat[ST_MODE]) and not file_stat[ST_MODE] & 0o111 and mode & os.X_OK:
-                logger.debug('calling _no_access')
+                LOGGER.debug('calling _no_access')
                 _no_access()
-            logger.debug('success, returning')
+            LOGGER.debug('success, returning')
             return self.context.uid, self.context.gid, sticky_dir, file_stat[ST_GID]
         # normal user -- see if we can get to the file
         return check_rwx(os.stat(path), mode, self.context, self._read_write)
@@ -943,8 +914,8 @@ class FnxFS(object):
             _no_access()
         self.local_access(source, os.F_OK)
         self.local_access(target.path, os.W_OK|os.X_OK)
-        logger.debug('--- source: %s', source)
-        logger.debug('--- target: %s', target)
+        LOGGER.debug('--- source: %s', source)
+        LOGGER.debug('--- target: %s', target)
         return os.link(source, target)
 
     local_lock = _auto_success      # TODO: make this actually work
@@ -978,11 +949,11 @@ class FnxFS(object):
 
     def local_opendir(self, path):
         self._local_check_access(path, os.R_OK)
-        logger.debug('--- %r', path.elements)
+        LOGGER.debug('--- %r', path.elements)
         elements = self.context.original_path.elements
         if len(elements) == 2 and self._sftp is not None:
-            logger.debug('--- a home directory')
-            logger.debug('--- checking permissions file')
+            LOGGER.debug('--- a home directory')
+            LOGGER.debug('--- checking permissions file')
             user, self.context.user = self.context.user, elements[1]
             self._check_permissions()
             self.context.user = user
@@ -997,7 +968,7 @@ class FnxFS(object):
         files = os.listdir(path)
         elements = self.context.original_path.elements
         if len(elements) == 2 and elements[1] in self._allowed_users:
-            logger.debug('--- adding FnxFS')
+            LOGGER.debug('--- adding FnxFS')
             files.append('FnxFS')
         self.seen_files.add(self.context.user, path, files)
         return ['.', '..'] + files
@@ -1035,8 +1006,8 @@ class FnxFS(object):
         uid, gid, sticky_dir, sgid = self._local_check_access(target.path, os.W_OK)
         if sticky_dir:
             gid = sgid
-        logger.debug('--- source: %s', source)
-        logger.debug('--- target: %s', target)
+        LOGGER.debug('--- source: %s', source)
+        LOGGER.debug('--- target: %s', target)
         os.symlink(source, target)
    
     def local_truncate(self, path, length):
@@ -1046,9 +1017,9 @@ class FnxFS(object):
         return 0
    
     def local_unlink(self, path):
-        logger.debug('--- checking access on %s', path.path)
+        LOGGER.debug('--- checking access on %s', path.path)
         self._local_check_access(path.path, os.W_OK)
-        logger.debug('--- unlinking')
+        LOGGER.debug('--- unlinking')
         os.unlink(path)
         return 0
 
@@ -1063,31 +1034,31 @@ class FnxFS(object):
             return os.write(fh, data)
 
     def _check_mount(self, folder):
-        logger.info('--- _check_mount: %r', folder)
-        logger.debug('*-* %r', self._mount)
+        LOGGER.info('--- _check_mount: %r', folder)
+        LOGGER.debug('*-* %r', self._mount)
         mount_point = self._remote_root/folder
         files = self._sftp.listdir_attr(mount_point)
-        logger.debug('--- %r', files)
+        LOGGER.debug('--- %r', files)
         if not files:
-            logger.debug('*-* no files found, attempting to lazy mount')
+            LOGGER.debug('*-* no files found, attempting to lazy mount')
             # should be no empty shares
             if not self._server_connect():
                 raise OSError((ENOLINK, 'unable to contact server'))
             self._mount_remote(folder)
             files = self._sftp.listdir_attr(mount_point)
-            logger.debug('--- %r', files)
+            LOGGER.debug('--- %r', files)
             # if not files:
             #     raise OSError((ENOLINK, 'unable to mount mirrored file system'))
         return files
 
     def _mount_remote(self, mount):
-        logger.debug('/// running mount command for %r...' % mount)
+        LOGGER.debug('/// running mount command for %r...' % mount)
         stdin, stdout, stderr = self._server.exec_command('/usr/local/bin/fnxfs shares start "%s"' % (mount,))
-        logger.debug('/// attempting communication...')
+        LOGGER.debug('/// attempting communication...')
         # stdin.write(self._server_root + '\r\n')
         sleep(1)
-        logger.debug('/// stdout: %r', stdout.read())
-        logger.debug('/// stderr: %r', stderr.read())
+        LOGGER.debug('/// stdout: %r', stdout.read())
+        LOGGER.debug('/// stderr: %r', stderr.read())
         stdin.close()
         stdout.close()
         stderr.close()
@@ -1097,24 +1068,24 @@ class FnxFS(object):
         """
         path exists remotely -- what are user's permissions locally?
         """
-        logger.debug('+++ %s ||%s||', path, remote_st)
+        LOGGER.debug('+++ %s ||%s||', path, remote_st)
         if self._remote_root in path:
             target = (path - self._remote_root).lstrip('/')
         else:
             target = path
         if target in ('', '/'):
-            logger.debug('+++ perms: 0o555')
+            LOGGER.debug('+++ perms: 0o555')
             return 0o555
         if _is_hidden_or_swap(path):
-            logger.debug('+++ hidden file: 0o600')
+            LOGGER.debug('+++ hidden file: 0o600')
             return 0o600
-        logger.debug('+++ path: %s', target.path)
-        logger.debug('+++ file: %s', target.filename)
+        LOGGER.debug('+++ path: %s', target.path)
+        LOGGER.debug('+++ file: %s', target.filename)
         user = self.context.user
         permissions = self._file_permissions[user]
         folders = self._folders[user]
         if target in permissions:
-            logger.debug('+++ found: %o', permissions[target])
+            LOGGER.debug('+++ found: %o', permissions[target])
             return permissions[target]
         path = self._find_path(path)
         if directory:
@@ -1127,22 +1098,22 @@ class FnxFS(object):
         Finds most specific path specified in permissions file.
         """
         folders = self._folders[self.context.user]
-        logger.debug('*** path: %s', path)
+        LOGGER.debug('*** path: %s', path)
         if self._remote_root in path:
             lookup = (path - self._remote_root).lstrip('/') # or Path('/')
         else:
             lookup = path
         if lookup in folders:
-            logger.debug('*** lookup: %s', lookup)
+            LOGGER.debug('*** lookup: %s', lookup)
             return lookup
         elements = lookup.elements
         found = elements and elements[0] or ''
         for next_ele in elements[1:]:
             if found/next_ele not in folders:
-                logger.debug('*** failed: %s', found/next_ele)
+                LOGGER.debug('*** failed: %s', found/next_ele)
                 break
             found /= next_ele
-        logger.debug('*** calced: %s', found)
+        LOGGER.debug('*** calced: %s', found)
         return found
 
     def _remote_check_access(self, path, mode, directory=False):
@@ -1150,17 +1121,17 @@ class FnxFS(object):
         raise error if user has no access
         """
         user = self.context.user
-        logger.debug('### user: %s', user)
+        LOGGER.debug('### user: %s', user)
         if _is_hidden_or_swap(path):
             return 0
         if self.context.uid and self.context.uid != self.context.share_uid and len(path.elements) > 3:
             _no_access()
         # trim path to look like stored keys
         trimmed_path = reduce(op.div, path.elements[3:], Path('')).strip('/') or Path('/')
-        logger.debug('### %s', trimmed_path)
+        LOGGER.debug('### %s', trimmed_path)
         file_perm = self._get_perms(trimmed_path, directory=directory)
-        logger.debug('### perm: %5o', file_perm)
-        logger.debug('### aces: %d', mode)
+        LOGGER.debug('### perm: %5o', file_perm)
+        LOGGER.debug('### aces: %d', mode)
         if file_perm == 0:
             _no_access()
         # only the owner is allowed in to FnxFS, so only check the user permissions,
@@ -1179,11 +1150,11 @@ class FnxFS(object):
     def remote_chmod(self, path, mode):
         if self.context.uid not in (0, self.context.share_uid):
             _no_access()
-        logger.debug('--- changing mod (psyche!)')
+        LOGGER.debug('--- changing mod (psyche!)')
         user = self.context.user
         permissions = self._file_permissions[user]
         target = (path - self._remote_root).lstrip('/')
-        logger.debug('--- current: %o   requested: %o', permissions[target], mode)
+        LOGGER.debug('--- current: %o   requested: %o', permissions[target], mode)
         if permissions[target] != mode:
             _no_access()
         return 0
@@ -1191,7 +1162,7 @@ class FnxFS(object):
     def remote_chown(self, path, uid, gid):
         if self.context.share_uid != uid or self.context.share_gid != gid:
             _no_access()
-        logger.debug('--- changing ownership (psyche!)')
+        LOGGER.debug('--- changing ownership (psyche!)')
         return 0
 
     def remote_create(self, path, mode):
@@ -1200,11 +1171,11 @@ class FnxFS(object):
         if len(self.context.original_path.elements) == 4:
             _no_access()
         if not _is_hidden_or_swap(path):
-            logger.debug('-@- not hidden nor swap, checking parent dir')
+            LOGGER.debug('-@- not hidden nor swap, checking parent dir')
             self._remote_check_access(self.context.original_path.path, os.W_OK|os.X_OK, directory=True)
         # file_perm = self._get_perms(path)
         # if file_perm == 0 and not _is_hidden_or_swap(path):
-        logger.debug('-@- creating %s', path)
+        LOGGER.debug('-@- creating %s', path)
         self._sftp.open(path, mode='w+').close()
         self._sftp.chmod(path, mode)
         # if file_perm == 0:
@@ -1226,14 +1197,14 @@ class FnxFS(object):
         user = self.context.user
         permitted, remote_st = self._cache[user].pop(path, (0, None))
         if remote_st is None:
-            logger.debug('--- remote_st is None')
+            LOGGER.debug('--- remote_st is None')
             # this could probably use more fine-tuning... for now, ONLY do a
             # permissions check for getattr calls that aren't cached, otherwise
             # we kill performance
-            if time() - self._last_permissions_check >= server_delay:
+            if time() - self._last_permissions_check >= SERVER_DELAY:
                 self._last_permissions_check = time()
                 self._check_permissions()
-            logger.debug('--- %s', path.path)
+            LOGGER.debug('--- %s', path.path)
             self._remote_check_access(self.context.original_path.path, os.R_OK|os.X_OK, directory=True)
             try:
                 remote_st = self._sftp.lstat(path)
@@ -1243,7 +1214,7 @@ class FnxFS(object):
                 raise OSError(exc.errno, err_text)
             except:
                 exc = sys.exc_info()[1]
-                logger.exception(exc)
+                LOGGER.exception(exc)
                 raise
             if not permitted:
                 permitted = self._get_perms(path, remote_st)
@@ -1258,8 +1229,8 @@ class FnxFS(object):
         if permitted and is_dir(local_st['st_mode']):
                 permitted |= 0o100
         local_st['st_mode'] = remote_st.st_mode & 0o777000 | permitted
-        logger.debug('--- local_st = %s', local_st)
-        logger.debug('--- remote getattr duration: %s', time() - start_time)
+        LOGGER.debug('--- local_st = %s', local_st)
+        LOGGER.debug('--- remote getattr duration: %s', time() - start_time)
         return local_st
 
     remote_link = _no_support
@@ -1300,7 +1271,7 @@ class FnxFS(object):
 
     def remote_readdir(self, path, _fh):
         start_time = time()
-        if time() - self._last_permissions_check > server_delay:
+        if time() - self._last_permissions_check > SERVER_DELAY:
             self._last_permissions_check = time()
             self._check_permissions()
         def get_remote_files(path, common_folder=None):
@@ -1368,7 +1339,7 @@ class FnxFS(object):
                         items.append((f.filename, file_st, 0))
                         cache[path/f.filename] = perms, f
         self.seen_files.add(user, self._home/user/'FnxFS'/key, names)
-        logger.debug('--- remote_readdir duration: %s', time() - start_time)
+        LOGGER.debug('--- remote_readdir duration: %s', time() - start_time)
         # return items
         return names
 
@@ -1402,11 +1373,11 @@ class FnxFS(object):
         """
         hidden = _is_hidden_or_swap(current)
         if not hidden:
-            logger.debug('*** attempt to rename a regular file')
+            LOGGER.debug('*** attempt to rename a regular file')
             self._remote_check_access(self.context.original_path.path, os.W_OK|os.X_OK, directory=True)
         new = Path(new)
         if new.elements[2:3] != ['FnxFS']:
-            logger.debug('*** cannot move FnxFS file outside FnxFS')
+            LOGGER.debug('*** cannot move FnxFS file outside FnxFS')
             _no_access()
         self._remote_check_access(new, os.W_OK)
         new = self._remote_root / '/'.join(new.elements[3:])
@@ -1416,7 +1387,7 @@ class FnxFS(object):
         except IOError:
             pass
             # exc = sys.exc_info()[1]
-            # logger.exception('*** %s', exc)
+            # LOGGER.exception('*** %s', exc)
             # _no_access()
         self._sftp.rename(current, new)
         user = self.context.user

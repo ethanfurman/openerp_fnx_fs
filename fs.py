@@ -6,6 +6,7 @@ from osv.osv import except_osv as ERPError
 from osv import osv, fields
 from pwd import getpwuid
 from pytz import timezone
+from scription import Execute
 from subprocess import check_output, CalledProcessError, STDOUT
 from tempfile import NamedTemporaryFile
 import errno
@@ -94,13 +95,13 @@ def write_mount(oe, cr):
             elif folder.folder_type == 'reflective':
                 mount_point = fs_root/folder.path
                 if not mount_point.exists():
-                    mount_point.mkdirs()
+                    mount_point.makedirs()
                 mount_options = folder.mount_options
                 mount_from = folder.mount_from
             elif folder.folder_type == 'shared':
                 mount_point = fs_root/folder.path
                 if not mount_point.exists():
-                    mount_point.mkdirs()
+                    mount_point.makedirs()
                 mount_options = 'ssh'
                 mount_from = folder.file_folder_name
             else:
@@ -169,7 +170,7 @@ def write_permissions(oe, cr):
             read_write = set()
             # default is deny all
             lines.append('all:none:%s' % path)
-            for user in file.readwrite_ids:
+            for user in (file.readwrite_ids + [file.user_id]):
                 read_write.add(user.id)
                 if file.file_type == 'normal':
                     lines.append('%s:write:%s' % (user.login, path))
@@ -422,12 +423,20 @@ class fnx_fs_folder(osv.Model):
         for share_name in share_names:
             share_cmd = ['/usr/local/bin/fnxfs', 'shares', 'stop', share_name]
             _logger.info('%s', ' '.join(share_cmd))
-            try:
-                output = check_output(share_cmd, stderr=STDOUT)
-            except Exception, exc:
-                _logger.warning(exc.output)
-                _logger.exception('Unable to stop share: %s', share_name)
+            result = Execute(share_cmd)
+            if result.returncode or result.stderr:
+                for line in (result.stdout + '\n' + result.stderr).split('\n'):
+                    line = line.strip()
+                    if line:
+                        _logger.error(line)
                 return False
+            # try:
+            #     output = check_output(share_cmd, stderr=STDOUT)
+            # except Exception, exc:
+            #     print(exc)
+            #     _logger.warning(exc.output)
+            #     _logger.exception('Unable to stop share: %s', share_name)
+            #     return False
         return True
 
     def write(self, cr, uid, ids, values, context=None):
@@ -492,11 +501,11 @@ class fnx_fs_folder(osv.Model):
             if folder.folder_type == 'shared':
                 if user_level != 'manager' and folder.share_owner_id.id != uid:
                     raise ERPError('Error', 'Only %s or a manager can delete this share' % folder.share_owner_id.name)
-                to_be_unmounted.append(path)
+                to_be_unmounted.append((folder.id, path))
             elif folder.folder_type == 'reflective':
                 if user_level != 'manager':
                     raise ERPError('Error', 'Only managers can remove Mirrored folders')
-                to_be_unmounted.append(path)
+                to_be_unmounted.append((folder.id, path))
             elif folder.folder_type == 'virtual':
                 if user_level != 'manager':
                     raise ERPError('Error', 'Only managers can remove Virtual folders')
@@ -509,9 +518,9 @@ class fnx_fs_folder(osv.Model):
             for fp in to_be_deleted:
                 if fp.exists():
                     fp.rmtree()
-            for fp in to_be_unmounted:
+            for id, fp in to_be_unmounted:
                 _logger.info('stopping share %s', fp)
-                if not self.fnx_stop_share(cr, uid, ids, share_name=(fp-fs_root), context=context):
+                if not self.fnx_stop_share(cr, uid, id, share_name=(fp-fs_root), context=context):
                     raise ERPError('Error', 'Unable to stop share "%s"' % (fp-fs_root))
                 _logger.info('removing mount point %s', fp)
                 attempts = 0
@@ -740,6 +749,7 @@ class fnx_fs_file(osv.Model):
             'Owner',
             ondelete='set null',
             domain="[('groups_id.category_id.name','=','FnxFS'),('id','!=',1)]",
+            help='the owner of a file always has edit privileges',
             ),
         'perm_type': fields.selection(
             PERMISSIONS_TYPE,

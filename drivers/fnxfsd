@@ -686,8 +686,8 @@ class FnxFS(object):
             # if current user does not have at least Consumer privilege, we're done
             if user not in self._allowed_users:
                 # remove symbolic link in local fs
-                symlink = self._local_root / user / 'FnxFS'
-                symlink.unlink()
+                # symlink = self._local_root / user / 'FnxFS'
+                # symlink.unlink()
                 return
             self._active_users = set([user])
             self._file_permissions[user] = user_permissions = {}
@@ -697,8 +697,11 @@ class FnxFS(object):
             user_permissions[Path('/')] = 0
             user_folders[Path('')]
             user_permissions[Path('')] = 0
-            # add the symlink
-            (self._home/user/'FnxFS').symlink(self._local_root/user/'FnxFS')
+            # add the symlink if it doesn't yet exist
+            # logger.debug('>>>   checking for symlink')
+            # if not fnxfs_symlink_target.exists():
+            #     logger.debug('>>>   creating symlink: %s --> %s', self._local_root/user/'FnxFS', fnxfs_symlink_target)
+            #     (self._local_root/user/'FnxFS').symlink(fnxfs_symlink_target)
             # process file
             target = user + ':'
             for line in permissions:

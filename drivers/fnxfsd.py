@@ -37,7 +37,12 @@ def stop():
 
 @Command()
 def restart():
-    _stop()
+    try:
+        _stop()
+    except SystemExit, exc:
+        if exc.code != 32:
+            # 32 -> not mounted
+            raise
     _start()
 
 def _start():
@@ -71,12 +76,14 @@ def _start():
         print(result.stdout, verbose=1)
         print(result.stderr, file=stderr)
         raise SystemExit(result.returncode)
-    tries = wait_and_check(5)
+    tries = wait_and_check(10)
     while tries:
         exc = None
         try:
             found = SHADOW.listdir()
+            print(found, verbose=2)
         except Exception, exc:
+            print(exc, verbose=2)
             pass
         else:
             if found:

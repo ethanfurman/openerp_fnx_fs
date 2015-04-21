@@ -31,17 +31,20 @@ def main():
     )
 def fnx_shadow_sweep(init, user):
     'moves user data (non-dot files) into a mirrored location controlled by FnxFS'
+    print('looking for candidates...', end='')
     possibles = [
         p
         for p in HOME.glob('*')
         if
            p.isdir() and
            p[0] != '.' and
-           p not in ('lost+found', ) and
+           p not in ('lost+found', 'backup-media') and
            (user is None or p.filename == user)
         ]
+    print(' found %d' % len(possibles))
     print('possibles:', possibles, verbose=2)
     for p in possibles:
+        print('  checking %s...' % p)
         targets = [
             t
             for t in p.listdir()
@@ -56,7 +59,7 @@ def fnx_shadow_sweep(init, user):
             src = p/t
             new_home = TARGET / user
             dst = new_home / t
-            print('moving %s to %s' % (src, dst))
+            print('    moving %s to %s' % (src, dst))
             if not new_home.exists():
                 new_home.mkdir()
                 stat = p.stat()

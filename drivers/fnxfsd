@@ -35,12 +35,12 @@ FileTracker.install()
 
 # this must happen second!
 import sys
-TARGET = 'python%s.%s' % sys.version_info[:2]
+PYTHON_TARGET = 'python%s.%s' % sys.version_info[:2]
 try:
-    sys.path.remove('/usr/local/lib/%s/dist-packages' % TARGET)
+    sys.path.remove('/usr/local/lib/%s/dist-packages' % PYTHON_TARGET)
 except ValueError:
     pass
-sys.path.insert(0, '/usr/local/lib/%s/dist-packages' % TARGET)
+sys.path.insert(0, '/usr/local/lib/%s/dist-packages' % PYTHON_TARGET)
 
 # okay
 
@@ -71,8 +71,10 @@ from VSS.xfuse import fuse_get_context as fuse_context
 
 VERSION = '1.1.beta4'
 
+HOME = Path('/home')
 SHADOW = Path('/home/.shadow')
 FNXFS_SHADOW = Path('/home/.fnxfs_shadow')
+TARGET = None
 MOUNT_FILE = Path('/etc/openerp/fnxfs.mount')
 PID_FILE = Path('/var/run/fnxfsd.pid')
 REMOTE_ROOT = Path('/var/openerp/fnxfs/')
@@ -368,6 +370,98 @@ def fnxfsd(
             ),
         mount,
         **fuse_kwargs)
+
+
+@Command(
+    init=('overwrites existing contents in shadow directory', FLAG),
+    user=('only process this user', OPTION),
+    )
+def sweep(init, user):
+    'moves user data (non-dot files) into a mirrored location controlled by FnxFS'
+    print('looking for candidates...', end='')
+    _squat()
+    possibles = [
+        p
+        for p in HOME.glob('*')
+        if
+           p.isdir() and
+           p[0] != '.' and
+           p not in ('lost+found', 'backup-media') and
+           (user is None or p.filename == user)
+        ]
+    print(' found %d' % len(possibles))
+    print('possibles:', possibles, verbose=2)
+    for p in possibles:
+        print('  checking %s...' % p)
+        targets = [
+            t
+            for t in p.listdir()
+            if
+                t[0] != '.' and
+                not p.islink(t) and
+                (p.isdir(t) or p.isfile(t))
+            ]
+        print('targets:', targets, verbose=2)
+        user = p.filename
+        for t in targets:
+            src = p/t
+            new_home = TARGET / user
+            dst = new_home / t
+            print('    moving %s to %s' % (src, dst))
+            if not new_home.exists():
+                new_home.mkdir()
+                stat = p.stat()
+                new_home.chown(stat.st_uid, stat.st_gid)
+                new_home.chmod(stat.st_mode)
+            try:
+                src.rename(dst)
+            except OSError, exc:
+                if exc.errno not in (EISDIR, ENOTEMPTY):
+                    raise
+                if not init:
+                    abort('directory %s already exists; did you mean to use --init?' % dst)
+                dst.rmtree()
+                src.rename(dst)
+            # *always* link to SHADOW
+            (SHADOW/user/t).symlink(src)
+
+
+@Command(
+    user=('only process this user', OPTION),
+    )
+def undo_sweep(user):
+    'remove symbolic links and move user data back to /home/[user]/'
+    # data to move back is in TARGET
+    _squat()
+    possibles = [
+        p
+        for p in TARGET.glob('*')
+        if
+           p.isdir() and
+           p[0] != '.' and
+           p not in ('lost+found', ) and
+           (user is None or p.filename == user)
+        ]
+    print('possibles:', possibles, verbose=2)
+    problems = []
+    for p in possibles:
+        targets = p.listdir()
+        print('targets:', targets, verbose=2)
+        user = p.filename
+        for t in targets:
+            src = p/t
+            old_home = HOME / user
+            dst = old_home / t
+            if dst.exists():
+                if not dst.islink():
+                    problems.append(dst)
+                    continue
+                dst.unlink()
+            print('moving %s to %s' % (src, dst))
+            src.rename(dst)
+    if problems:
+        abort('unable to move the following files/directories:\n\t%s' % '\n\t'.join(problems))
+
 
 class RequestHandler(SocketServer.BaseRequestHandler):
     """
@@ -1612,6 +1706,17 @@ def _start():
             print(traceback.format_exc(exc))
         print('problem mounting %s!  reverting...' % SHADOW)
         _stop()
+
+def _squat():
+    global TARGET
+    if FNXFS_SHADOW.exists():
+        squatt = FNXFS_SHADOW
+    else:
+        squatt = SHADOW
+    # make sure the directory doesn't change out from beneath our feet
+    # while we are moving data around
+    squatt.chdir()
+    TARGET = squatt
 
 def _stop():
     print('unmounting %s...' % SHADOW)

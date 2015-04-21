@@ -57,7 +57,7 @@ from dbf import DateTime
 from errno import *
 from grp import getgrall as get_all_groups
 from pwd import getpwuid, getpwnam as get_pw_entry
-from scription import Alias, Command, Run, FLAG, MULTI, OPTION, REQUIRED
+from scription import *
 from socket import socket, AF_INET, SOCK_STREAM, error as SocketError
 from stat import S_ISDIR as is_dir, S_ISLNK as is_link, ST_MODE, ST_UID, ST_GID
 from threading import Lock, RLock

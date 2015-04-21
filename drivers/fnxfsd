@@ -374,7 +374,7 @@ def fnxfsd(
 
 @Command(
     init=('overwrites existing contents in shadow directory', FLAG),
-    user=('only process this user', OPTION),
+    user=('only process specified user', OPTION),
     )
 def sweep(init, user):
     'moves user data (non-dot files) into a mirrored location controlled by FnxFS'
@@ -427,7 +427,7 @@ def sweep(init, user):
 
 
 @Command(
-    user=('only process this user', OPTION),
+    user=('only process specified user', OPTION),
     )
 def undo_sweep(user):
     'remove symbolic links and move user data back to /home/[user]/'

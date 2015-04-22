@@ -1,6 +1,13 @@
 #!/usr/local/bin/suid-python
-
 from __future__ import print_function
+"""
+script to interact with OpenERP FnxFS system.
+
+Return codes:
+    0   all is well
+    1   error(s) occurred, but goal acheived
+    2+  error(s) occurred, goal not achieved
+"""
 
 import pandaemonium
 
@@ -8,8 +15,8 @@ from collections import defaultdict
 from dbf import DateTime
 from getpass import getpass
 from pandaemonium import Daemon, PidLockFile, FileTracker, STDOUT, STDERR
-from path import Path
-from scription import Script, Command, REQUIRED, FLAG, OPTION, Run, Execute
+from antipathy import Path
+from scription import *
 from subprocess import check_output, CalledProcessError, Popen, PIPE, STDOUT
 from VSS.time_machine import PropertyDict
 import commands
@@ -66,7 +73,6 @@ sshfs_options = [
 execfile('/etc/openerp/credentials')
 execfile('/etc/openerp/fnxfs_credentials')
 
-Script(DEBUG=False)
 
 @Command(
         src=('file to archive', REQUIRED, 'f', Path),
@@ -76,11 +82,11 @@ def archive(src):
     copy existing FnxFS file into the archive
     """
     if not src.exists():
-        raise SystemExit('source file does not exist')
+        abort('source file does not exist')
     if archive_needed(src):
         archive_dst = archive_root / (src - fs_root)
         if not archive_dst.exists():
-            archive_dst.mkdirs(owner=openerp_ids)
+            archive_dst.makedirs(owner=openerp_ids)
         with PidLockFile(archive_dst/'locked.pid'):
             archive_dst = next_archive_name(archive_dst)
             src.copy(archive_dst)
@@ -118,7 +124,7 @@ def cp(
     os.setgid(0)
     if not src.isdir():
         if not dst.exists() and not force:
-            raise SystemExit('destination file does not exist (use --force to copy anyway)')
+            abort('destination file does not exist (use --force to copy anyway)')
         _cp(src, dst, timeout)
     else:
         for dirpath, dirnames, filenames in src.walk():
@@ -146,9 +152,9 @@ def cp(
 def _cp(src, dst, timeout):
     archive_dst = archive_root / (dst - fs_root)
     if not archive_dst.exists():
-        archive_dst.mkdirs(owner=openerp_ids)
+        archive_dst.makedirs(owner=openerp_ids)
     if not dst.exists():
-        dst.mkdirs(owner=openerp_ids)
+        dst.makedirs(owner=openerp_ids)
     with PidLockFile(archive_dst/'locked.pid', time_out=timeout):
         src.copy(dst)
         dst.chown(*openerp_ids)
@@ -166,7 +172,7 @@ def copy_usershares(folder):
     """
     #
     # For each share we care about:
-    # 1. mount share in /mnt/11-145
+    # 1. mount share in /var/openerp/11-145-...
     # 2. for each folder there:
     #    a) create an entry in FnxFS/Folders
     #    b) copy permissions from parent folder
@@ -218,9 +224,9 @@ def copy_usershares(folder):
             str,
             ['start', 'stop', 'restart', 'active', 'inactive'],
             ),
-        share=('mount point, ip address of shares, "ssh", "smb", or "all",', ),
+        share=('mount point, ip address of shares, "ssh", "smb", or "all",', REQUIRED)
         )
-def shares(subcommand='', share=''):
+def shares(subcommand, share=''):
     """
     work with FnxFS mounts
     """
@@ -228,24 +234,24 @@ def shares(subcommand='', share=''):
     # the smb (un)mount must be done with uid of root
     # the sshfs unmount must be done with uid of root
     # the sshfs mount must be done with uid of openerp
-    if DEBUG:
-        print(' uid =', os.getuid())
-        print('euid =', os.geteuid())
-        print(' gid =', os.getgid())
-        print('egid =', os.getegid())
-    if not share :
+    print(' uid =', os.getuid(), verbose=2)
+    print('euid =', os.geteuid(), verbose=2)
+    print(' gid =', os.getgid(), verbose=2)
+    print('egid =', os.getegid(), verbose=2)
+    if not share:
         if subcommand in ('active', 'inactive'):
             share = 'all'
         else:
             share = 'ssh'
-    if DEBUG:
-        print('command =', subcommand)
-        print('share =', share)
+    print('command =', subcommand, verbose=2)
+    print('share =', share, verbose=2)
     target_shares = parse_mount_file(share)
-    if DEBUG:
-        print('target =', target_shares)
+    print('target =', target_shares, verbose=2)
     if not target_shares:
-        raise SystemExit('share not found')
+        if share == 'all':
+            abort('no shares listed in %s' % fnxfs_mount)
+        else:
+            abort('share not found')
     active = PropertyDict(default=dict)
     inactive = PropertyDict(default=dict)
     shares = {}
@@ -255,22 +261,20 @@ def shares(subcommand='', share=''):
     for typ, params in target_shares:
         source, mount = params[0], params[-1]
         if (mount.replace(' ', '\\040') + ' ') in mounted_shares:
-            if DEBUG:
-                print('active: %s' % mount)
+            print('active: %s' % mount, verbose=2)
             active[typ][mount] = source
         else:
-            if DEBUG:
-                print('inactive: %s' % mount)
+            print('inactive: %s' % mount, verbose=2)
             inactive[typ][mount] = source
         shares[mount] = params
     if subcommand == 'active':
         for typ in ('smb', 'ssh'):
             for mnt, src in sorted(active[typ].items()):
-                print('%5s: %-40s %-40s' % (typ, mnt, src))
+                print('%5s: %-40s %-40s' % (typ, mnt, src), verbose=0)
     if subcommand == 'inactive':
         for typ in ('smb', 'ssh'):
             for mnt, src in sorted(inactive[typ].items()):
-                print('%5s: %-40s %-40s' % (typ, mnt, src))
+                print('%5s: %-40s %-40s' % (typ, mnt, src), verbose=0)
     for typ, stop_cmd, start_cmd in (('smb', stop_smb, start_smb), ('ssh', stop_sshfs, start_sshfs)):
         if subcommand in ('restart', 'stop'):
             for mnt in sorted(shares.keys()):
@@ -295,20 +299,18 @@ def parse_mount_file(share):
     """
     return all matching entry for share
     """
-    if DEBUG:
-        print('parse_mount_file:')
+    print('parse_mount_file:', verbose=2)
     shares = []
     with open(fnxfs_mount) as data:
         mounts = data.readlines()
     for line in mounts:
         line = line.strip()
-        if DEBUG:
-            print('   ' + line)
+        print('   ' + line, verbose=2)
         if not line:
             continue
         mount_point, options, source = line.split('\t')
         if ':/home/' in source:
-            source = source.replace(':/home/', ':/fnxfs_home/')
+            source = source.replace(':/home/', ':/home/.fnxfs_shadow/')
         if (
             share == 'all' or
             options == 'ssh' and share == 'ssh' or
@@ -329,15 +331,15 @@ def start_smb(source, options, mount):
     source = '"%s"' % source
     mount = '"%s"' % mount
     command = ['/bin/mount', source] + options.split() + [mount]
-    # command =  ' '.join(command)
+    command =  ' '.join(command)
     with open('/var/log/fnxfs_debug', 'a+') as debug:
-        debug.write(' '.join(command) + '\n')
-    # return commands.getoutput(command)
-    output = Execute(command, password=server_root)
-    result = ''
-    if output.stdout:
-        result += output.stdout
-    return result.replace('Password:','').strip()
+        debug.write(command + '\n')
+    return commands.getoutput(command)
+    #output = Execute(command, password=server_root)
+    #result = ''
+    #if output.stdout:
+    #    result += output.stdout
+    #return result.replace('Password:','').strip()
 
 def start_sshfs(source, mount):
     """
@@ -414,6 +416,4 @@ def connect_oe(hostname, database, user, password):
     OE.fs_file = conn.get_model('fnx.fs.file')
     OE.fs_folder = conn.get_model('fnx.fs.folder')
 
-
-if __name__ == "__main__":
-    Run()
+Main()

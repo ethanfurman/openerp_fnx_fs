@@ -57,19 +57,20 @@ from dbf import DateTime
 from errno import *
 from grp import getgrall as get_all_groups
 from pwd import getpwuid, getpwnam as get_pw_entry
+from scandir import scandir
 from scription import *
-from socket import socket, AF_INET, SOCK_STREAM, error as SocketError
+from socket import socket, AF_INET, SOCK_STREAM
 from stat import S_ISDIR as is_dir, S_ISLNK as is_link, ST_MODE, ST_UID, ST_GID
-from threading import Lock, RLock
+from threading import RLock
 from time import time, sleep
-from VSS.paramiko import SSHClient, AuthenticationException
+from VSS.paramiko import SSHClient
 from VSS.paramiko.client import AutoAddPolicy
 from VSS.paramiko.ssh_exception import SSHException
 from VSS.utils import get_local_ip
-from VSS.xfuse import FUSE, Operations, FuseOSError, ENOTSUP
+from VSS.xfuse import FUSE, FuseOSError, ENOTSUP
 from VSS.xfuse import fuse_get_context as fuse_context
 
-VERSION = '1.1.beta4'
+VERSION = '1.1.beta5'
 
 HOME = Path('/home')
 SHADOW = Path('/home/.shadow')
@@ -125,6 +126,7 @@ def dump_permissions(
     Query the running daemon for the cache of the requested user.
     """
     execfile(config, globals())
+    user = user.encode('utf8')
     server_ip = get_local_ip(openerp)
     s = socket(AF_INET, SOCK_STREAM)
     s.connect((server_ip, TCP_PORT))
@@ -133,9 +135,9 @@ def dump_permissions(
         data = s.recv(1024)
         if not data:
             break
-        print(data, end='')
+        print(data, end='', verbose=0)
     s.close()
-    print()
+    print(verbose=0)
 
 
 @Command(
@@ -150,6 +152,7 @@ def dump_folders(
     Query the running daemon for the cache of the requested user.
     """
     execfile(config, globals())
+    user = user.encode('utf8')
     server_ip = get_local_ip(openerp)
     s = socket(AF_INET, SOCK_STREAM)
     s.connect((server_ip, TCP_PORT))
@@ -158,9 +161,9 @@ def dump_folders(
         data = s.recv(1024)
         if not data:
             break
-        print(data, end='')
+        print(data, end='', verbose=0)
     s.close()
-    print()
+    print(verbose=0)
 
 
 @Command(
@@ -175,6 +178,7 @@ def dump_cache(
     Query the running daemon for the cache of the requested user.
     """
     execfile(config, globals())
+    user = user.encode('utf8')
     server_ip = get_local_ip(openerp)
     s = socket(AF_INET, SOCK_STREAM)
     s.connect((server_ip, TCP_PORT))
@@ -183,9 +187,9 @@ def dump_cache(
         data = s.recv(1024)
         if not data:
             break
-        print(data, end='')
+        print(data, end='', verbose=0)
     s.close()
-    print()
+    print(verbose=0)
 
 
 @Command(
@@ -202,6 +206,9 @@ def find_path(
     Query the running daemon for the last path that had file_name in it.
     """
     execfile(config, globals())
+    user = user.encode('utf8')
+    file_name = file_name.encode('utf8')
+    print('checking user %r for %r' % (user, file_name))
     server_ip = get_local_ip(openerp)
     s = socket(AF_INET, SOCK_STREAM)
     s.connect((server_ip, TCP_PORT))
@@ -210,9 +217,9 @@ def find_path(
         data = s.recv(1024)
         if not data:
             break
-        print(data, end='')
+        print(data, end='', verbose=0)
     s.close()
-    print()
+    print(verbose=0)
 
 @Command(
         level=('new log level', REQUIRED, 'l', int),
@@ -227,9 +234,9 @@ def log_level(
         data = s.recv(1024)
         if not data:
             break
-        print(data, end='')
+        print(data, end='', verbose=0)
     s.close()
-    print()
+    print(verbose=0)
 
 
 @Command(
@@ -288,7 +295,7 @@ def fnxfsd(
             filename=DEFAULT_LOG,
             encoding='utf8',
             )
-    FH.setLevel(logging.DEBUG)
+    FH.setLevel(logging.WARNING)
     FH.setFormatter(logging.Formatter("%(thread)5d:  %(asctime)-30s %(name)-40s %(message)s"))
     LOGGER.addHandler(FH)
     LOGGER = logging.getLogger('fnxfsd')
@@ -507,14 +514,17 @@ class RequestHandler(SocketServer.BaseRequestHandler):
                     self.request.sendall('result:\n%s' % (result, ))
 
     def do_find_path(self, user, file_name):
+        LOGGER.warning('checking %r for %r', user, file_name)
         return self.file_cache.find(user, file_name)
 
     def do_dump_cache(self, user):
+        LOGGER.warning('user: %r', user)
         result = []
         for path in reversed(self.file_cache.paths[user]):
             result.append(path)
             for file in self.file_cache.cache[user][path]:
                 result.append('   %s' % file)
+        LOGGER.warning('found %d items', len(result))
         return '\n'.join(result)
 
     def do_dump_folders(self, user):
@@ -728,11 +738,9 @@ class FnxFS(object):
             return True
 
     def __call__(self, op, path, *args):
-        # global CONTEXT
         LOGGER.info('--> %s %s %s', op, path, repr(args)[:200])
         ret = '[unhandled exception]'
         flush = False
-        # CONTEXT = threading.local()
         uid, gid, pid = fuse_context()
         CONTEXT.uid = uid
         CONTEXT.gid = gid
@@ -741,8 +749,8 @@ class FnxFS(object):
         LOGGER.debug('=== CONTEXT: %r', CONTEXT)
         try:
             path = Path(path)
-            if len(path) > 512:
-                raise ValueError('too damn big')
+            if len(path) > 1024:
+                LOGGER.warning('BIG PATH! (%d bytes) <%s>', len(path), path)
             CONTEXT.original_path = path
             if op not in ('init','destroy','statfs'):
                 elements = path.elements
@@ -1117,13 +1125,36 @@ class FnxFS(object):
             return os.read(fh, size)
 
     def local_readdir(self, path, fh):
-        files = os.listdir(path)
+        files = list(scandir(path))
+        scan_files = set([f.name for f in files])
         elements = CONTEXT.original_path.elements
+        return_files = ['.', '..']
         if len(elements) == 2 and elements[1] in self._allowed_users:
             LOGGER.debug('--- adding FnxFS')
-            files.append('FnxFS')
-        self.seen_files.add(CONTEXT.user, path, files)
-        return ['.', '..'] + files
+            return_files.append('FnxFS')
+        for f in files:
+            st = f.stat(follow_symlinks=False)
+            return_files.append((
+                f.name,
+                dict(
+                    st_atime = st.st_atime,
+                    st_blksize = st.st_blksize,
+                    st_blocks = st.st_blocks,
+                    st_ctime = st.st_ctime,
+                    st_dev = st.st_dev,
+                    st_gid = st.st_gid,
+                    st_ino = st.st_ino,
+                    st_mode = st.st_mode,
+                    st_mtime = st.st_mtime,
+                    st_nlink = st.st_nlink,
+                    st_rdev = st.st_rdev,
+                    st_size = st.st_size,
+                    st_uid = st.st_uid,
+                    ),
+                0,
+                ))
+        self.seen_files.add(CONTEXT.user, path, scan_files)
+        return return_files
 
     local_readlink = os.readlink
 
@@ -1199,15 +1230,12 @@ class FnxFS(object):
             self._mount_remote(folder)
             files = self._sftp.listdir_attr(mount_point)
             LOGGER.debug('--- %r', files)
-            # if not files:
-            #     raise OSError((ENOLINK, 'unable to mount mirrored file system'))
         return files
 
     def _mount_remote(self, mount):
         LOGGER.debug('/// running mount command for %r...', mount)
         stdin, stdout, stderr = self._server.exec_command('/usr/local/bin/fnxfs shares start "%s"' % (mount,))
         LOGGER.debug('/// attempting communication...')
-        # stdin.write(self._server_root + '\r\n')
         sleep(1)
         LOGGER.debug('/// stdout: %r', stdout.read())
         LOGGER.debug('/// stderr: %r', stderr.read())
@@ -1328,12 +1356,9 @@ class FnxFS(object):
         if not _is_hidden_or_swap(path):
             LOGGER.debug('-@- not hidden nor swap, checking parent dir')
             self._remote_check_access(CONTEXT.original_path.path, os.W_OK|os.X_OK, directory=True)
-        # file_perm = self._get_perms(path)
-        # if file_perm == 0 and not _is_hidden_or_swap(path):
         LOGGER.debug('-@- creating %s', path)
         self._sftp.open(path, mode='w+').close()
         self._sftp.chmod(path, mode)
-        # if file_perm == 0:
         path -= self._remote_root
         user = CONTEXT.user
         with DATA_LOCK:
@@ -1429,7 +1454,7 @@ class FnxFS(object):
 
     def remote_readdir(self, path, _fh):
         start_time = time()
-        with DATA_LOCK():
+        with DATA_LOCK:
             if time() - self._last_permissions_check > SERVER_DELAY:
                 self._last_permissions_check = time()
                 self._check_permissions()
@@ -1499,8 +1524,8 @@ class FnxFS(object):
                             cache[path/f.filename] = perms, f
             self.seen_files.add(user, self._home/user/'FnxFS'/key, names)
             LOGGER.debug('--- remote_readdir duration: %s', time() - start_time)
-            # return items
-            return names
+            return items
+            # return names
 
     def remote_readlink(self, path):
         raise OSError(ENOENT, 'no such file')
@@ -1547,9 +1572,6 @@ class FnxFS(object):
                 self._sftp.remove(new)
             except IOError:
                 pass
-                # exc = sys.exc_info()[1]
-                # LOGGER.exception('*** %s', exc)
-                # _no_access()
             self._sftp.rename(current, new)
             user = CONTEXT.user
             self._written[user].add(new)
@@ -1652,6 +1674,7 @@ class Accessed(object):
         """
         return the path of file -- if more than one match, use the most recent
         """
+        LOGGER.warning('checking %r for %r', user, file_name)
         with DATA_LOCK:
             for path in reversed(self.paths[user]):
                 files = self.cache[user][path]
@@ -1686,7 +1709,7 @@ def _start():
     print('mounting: fnxfsd %s %s' % (FNXFS_SHADOW, SHADOW))
     result = Execute('fnxfsd %s %s' % (FNXFS_SHADOW, SHADOW))
     if result.returncode:
-        print(result.stdout, verbose=1)
+        print(result.stdout, verbose=0)
         print(result.stderr, file=stderr)
         raise SystemExit(result.returncode)
     tries = wait_and_check(10)
@@ -1703,8 +1726,8 @@ def _start():
                 break
     else:
         if exc:
-            print(traceback.format_exc(exc))
-        print('problem mounting %s!  reverting...' % SHADOW)
+            print(traceback.format_exc(exc), verbose=0)
+        print('problem mounting %s!  reverting...' % SHADOW, verbose=0)
         _stop()
 
 def _squat():

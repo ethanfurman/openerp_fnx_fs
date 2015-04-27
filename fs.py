@@ -721,10 +721,10 @@ class fnx_fs_file(osv.Model):
     def change_file_type(self, cr, uid, ids, file_type, context=None):
         res = {}
         res['value'] = values = {}
-        if file_type == 'normal':
+        if uid == SUPERUSER or file_type != 'normal':
             values['user_id'] = self.pool.get('res.users').browse(cr, uid, [('login','=','openerp')], context=context)[0].id
         else:
-            values['user_id'] = ''
+            values['user_id'] = uid
         return res
 
     def change_permissions(self, cr, uid, ids, perm_type, folder_id, called_from, context=None):
@@ -815,11 +815,10 @@ class fnx_fs_file(osv.Model):
             ('shareas_uniq', 'unique(shared_as)', 'Shared As name already exists in system.'),
             ]
     _defaults = {
-        'user_id': lambda s, c, u, ctx={}: u != 1 and u or '',
         'perm_type': lambda *a: 'inherit',
         'readwrite_ids': lambda s, c, u, ctx={}: [u],
         'readonly_type': lambda *a: 'all',
-        'file_type': lambda *a: 'manual',
+        'file_type': lambda *a: 'normal',
         }
 
     def create(self, cr, uid, values, context=None):

@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/local/bin/suid-python
 from __future__ import print_function
 
 ### BEGIN INIT INFO
@@ -70,7 +70,7 @@ from VSS.utils import get_local_ip
 from VSS.xfuse import FUSE, FuseOSError, ENOTSUP
 from VSS.xfuse import fuse_get_context as fuse_context
 
-VERSION = '1.1.beta5'
+VERSION = '1.1.beta6'
 
 HOME = Path('/home')
 SHADOW = Path('/home/.shadow')
@@ -92,15 +92,21 @@ if Path.exists('/run'):
 else:
     PIDFILE = Path('/var/run/fnxfsd.pid')
 
-@Command()
-def start():
-    'Start the FnxFS system'
-    _start()
 
-@Command()
-def stop():
-    'Stop the FnxFS system'
-    _stop()
+@Script()
+def main():
+    if os.getuid() != 0:
+        # only allow user functions
+        if module.script_command not in (
+                'create-file', 'delete-file', 'change-file',
+                'create-folder', 'delete-folder', 'change-folder',
+                ):
+            abort('must be root to run %r' % module.script_command)
+
+
+#------------------------
+# daemon control commands
+#------------------------
 
 @Command()
 def restart():
@@ -113,6 +119,56 @@ def restart():
             raise
     _start()
 
+
+@Command()
+def start():
+    'Start the FnxFS system'
+    _start()
+
+
+@Command()
+def stop():
+    'Stop the FnxFS system'
+    _stop()
+
+
+#---------------------------
+# FnxFS interaction commands
+#---------------------------
+
+@@command()
+def change_file():
+    pass
+
+
+@Command()
+def create_file(source, folder, share_as=None, permissions=None, read_users=None, write_users=None, notes=None):
+    pass
+
+
+@Command()
+def delete_file():
+    pass
+
+
+@Command()
+def change_folder():
+    pass
+
+
+@Command()
+def create_folder():
+    pass
+
+
+@Command()
+def delete_folder():
+    pass
+
+
+#----------------
+# fnxfsd commands
+#----------------
 
 @Command(
         user=('user to check on', ),

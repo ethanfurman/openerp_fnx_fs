@@ -45,6 +45,7 @@ sys.path.insert(0, '/usr/local/lib/%s/dist-packages' % PYTHON_TARGET)
 # okay
 
 import Crypto
+import openerplib
 import operator as op
 import os
 import scription
@@ -83,6 +84,8 @@ TCP_PORT = 8068
 
 DATA_LOCK = RLock()
 CONTEXT = threading.local()  # used for thread-local storage
+AS_ROOT = False
+AS_USER = None
 
 os.environ['PATH'] = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
 os.environ['HOME'] = '/root'
@@ -95,13 +98,16 @@ else:
 
 @Script()
 def main():
-    if os.getuid() != 0:
+    if os.getuid() == 0:
+        module.AS_ROOT = True
+    else:
         # only allow user functions
         if module.script_command not in (
                 'create-file', 'delete-file', 'change-file',
                 'create-folder', 'delete-folder', 'change-folder',
                 ):
             abort('must be root to run %r' % module.script_command)
+        module.AS_USER = pwd.getpwuid(os.getuid()).pw_name
 
 
 #------------------------
@@ -141,9 +147,72 @@ def change_file():
     pass
 
 
-@Command()
-def create_file(source, folder, share_as=None, permissions=None, read_users=None, write_users=None, notes=None):
-    pass
+@Command(
+        source=('complete path/filename of file to share', REQUIRED, ),
+        folder=('folder to publish file under', REQUIRED, ),
+        share_as=('new name to share file as', OPTION, ),
+        permissions=('permissions type: "inherit" or "custom"', OPTION, ),
+        read_users('with "custom" permissions, list of users to grant read-access to', MULTI, ),
+        write_users=('with "custom" permissions, list of users to grant read/write-access to', MULTI, ),
+        note=('option note about this file', OPTION, ),
+        as_user('run as different user (must be root!', FLAG, ),
+        config=('location of configuration file', OPTION, None, Path),
+        )
+def create_file(source, folder, share_as=None, permissions='inherit', read_users=(), write_users=(), note=None, as_user=None, config='/usr/local/etc/fnxfs_credentials'):
+    config = OrmFile(config)
+    if as_user and not AS_ROOT:
+        # can only specify a different user than self if running as root
+        abort('must run as root to specify a different user than you')
+    login = as_user or AS_USER
+    superuser = openerplib.get_connection(hostname=config.openerp, database=config.database, login='admin', password=config.server_pass)
+    res = AttrDict()
+    res.users = superuser.get_model('res.users')
+    users = dict([(u.login, u.id) for u in res.users.search_read([], fields=['id', 'login'])])
+    user = users.get(login)
+    if user is None:
+        abort('user %r does not exist in OpenERP' % login)
+    user = openerplib.get_connection(hostname=config.openerp, database=config.database, login=login, password=user.password)
+
+    fnx = AttrDict()
+    fnx.fs = AttrDict()
+    fnx.fs.folder = user.get_model('fnx.fs.folder')
+    fnx.fs.file = user.get_model('fnx.fs.file')
+    values = {}
+    values['folder_id'] = fnx.fs.folder.search([('name','=',folder)], max_qty='1')[0].id
+    if share_as is not None:
+        values['shared_as'] = share_as
+    if permissions is not None:
+        values['perm_type'] == permissions
+    ro = []
+    errors = []
+    for login in read_users:
+        # read_users is a bunch of login names; e.g. ('ethan', 'emile', 'tony')
+        id = users.get(login)
+        if id is None:
+            errors.append(login)
+        else:
+            ro.append(id)
+    if errors:
+        abort('unable to find users: %s' % ', '.join(errors))
+    if ro:
+        values['readonly_ids'] = ro
+    rw = []
+    errors = []
+    for login in write_users:
+        # write_users is a bunch of login names; e.g. ('ethan', 'emile', 'tony')
+        id = users.get(login)
+        if id is None:
+            errors.append(login)
+        else:
+            ro.append(id)
+    if errors:
+        abort('unable to find users: %s' % ', '.join(errors))
+    if rw:
+        values['readwrite_ids'] = rw
+    if note:
+        values['notes'] = note
+
+    fnx.fs.create(values)
 
 
 @Command()

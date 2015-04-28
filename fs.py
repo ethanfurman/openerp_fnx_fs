@@ -675,6 +675,9 @@ class fnx_fs_file(osv.Model):
                 owner_id = values['user_id']
             if file_path is None:
                 file_name = values['file_name']
+            else:
+                file_path = Path(file_path)
+                values['file_name'] = values.get('file_name', file_path.filename)
             login = get_user_login(self, cr, uid, owner_id)
             folder = fnx_fs_folder.browse(cr, uid, folder_id, context=context).path
             new_env = os.environ.copy()
@@ -687,18 +690,18 @@ class fnx_fs_file(osv.Model):
                     path = _remote_locate(user, file_name, context=context)
                 except Exception, exc:
                     raise ERPError("Error", "Error trying to locate file.\n\n%s" % exc)
-                elements = path.elements
-                if len(elements) < 3 or elements[2] != user:
-                    raise ERPError(
-                            'Unshareable File',
-                            'Only files in your home directory or its subfolders can be shared.\n(%s)' % path,
-                            )
-                elif len(elements) > 3 and elements[3] == 'FnxFS':
-                    raise ERPError(
-                            'Unshareable File',
-                            'Cannot share files directly from the FnxFS shared directory.\n(%s)' % path,
-                            )
                 file_path = values['full_name'] = path/file_name
+            elements = fle_path.dir_elements
+            if len(elements) < 3 or elements[2] != user:
+                raise ERPError(
+                        'Unshareable File',
+                        'Only files in your home directory or its subfolders can be shared.\n(%s)' % path,
+                        )
+            elif len(elements) > 3 and elements[3] == 'FnxFS':
+                raise ERPError(
+                        'Unshareable File',
+                        'Cannot share files directly from the FnxFS shared directory.\n(%s)' % path,
+                        )
             copy_cmd = [
                     '/usr/bin/sshpass', '-e',
                     '/usr/bin/scp', '-o', 'StrictHostKeyChecking=no', 'root@%s:"%s"' % (ip, file_path),
@@ -829,6 +832,9 @@ class fnx_fs_file(osv.Model):
         if vals.perm_type == 'inherit':
             vals.pop('readonly_ids', None)
             vals.readwrite_ids = [uid]
+        elif vals.perm_type != 'custom':
+            # unknown type
+            raise ERPError('Invalid Permissions Type', 'Permission type should be "inherit" or "custom", not %r' % vals.perm_type)
         if not vals.get('shared_as'):
             vals.shared_as = vals.file_name
         shared_as = Path(vals.shared_as)
@@ -837,7 +843,7 @@ class fnx_fs_file(osv.Model):
             source_file = Path(vals.file_name)
             if shared_as.ext != '.' and shared_as.ext != source_file.ext:
                 vals.shared_as = shared_as + source_file.ext
-            self._get_remote_file(cr, uid, vals, context=context)
+            self._get_remote_file(cr, uid, vals, file_path=vals.get('file_path'), context=context)
         elif vals.file_type == 'normal':
             if not shared_as.ext:
                 raise ERPError('Error', 'Shared name should have an extension indicating file type.')

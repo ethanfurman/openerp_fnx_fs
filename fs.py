@@ -678,29 +678,28 @@ class fnx_fs_file(osv.Model):
             else:
                 file_path = Path(file_path)
                 values['file_name'] = values.get('file_name', file_path.filename)
-            login = get_user_login(self, cr, uid, owner_id)
+            user = get_user_login(self, cr, uid, owner_id)
             folder = fnx_fs_folder.browse(cr, uid, folder_id, context=context).path
             new_env = os.environ.copy()
             new_env['SSHPASS'] = server_root
             if file_path is None:
                 uid = context.get('uid')
                 res_users = self.pool.get('res.users')
-                user = res_users.browse(cr, SUPERUSER, uid).login
                 try:
                     path = _remote_locate(user, file_name, context=context)
                 except Exception, exc:
                     raise ERPError("Error", "Error trying to locate file.\n\n%s" % exc)
                 file_path = values['full_name'] = path/file_name
-            elements = fle_path.dir_elements
+            elements = file_path.dir_elements
             if len(elements) < 3 or elements[2] != user:
                 raise ERPError(
                         'Unshareable File',
-                        'Only files in your home directory or its subfolders can be shared.\n(%s)' % path,
+                        'Only files in your home directory or its subfolders can be shared.\n(%s)' % file_path,
                         )
             elif len(elements) > 3 and elements[3] == 'FnxFS':
                 raise ERPError(
                         'Unshareable File',
-                        'Cannot share files directly from the FnxFS shared directory.\n(%s)' % path,
+                        'Cannot share files directly from the FnxFS shared directory.\n(%s)' % file_path,
                         )
             copy_cmd = [
                     '/usr/bin/sshpass', '-e',
@@ -818,8 +817,9 @@ class fnx_fs_file(osv.Model):
             ('shareas_uniq', 'unique(shared_as)', 'Shared As name already exists in system.'),
             ]
     _defaults = {
+        'user_id': lambda s, c, u, ctx={}: u != 1 and u or '',
         'perm_type': lambda *a: 'inherit',
-        'readwrite_ids': lambda s, c, u, ctx={}: [u],
+        'readwrite_ids': lambda s, c, u, ctx={}: u != 1 and [u] or [],
         'readonly_type': lambda *a: 'all',
         'file_type': lambda *a: 'normal',
         }

@@ -50,6 +50,7 @@ import operator as op
 import os
 import scription
 import SocketServer
+import syslog
 import threading
 import traceback
 
@@ -57,6 +58,7 @@ from collections import defaultdict
 from dbf import DateTime
 from errno import *
 from grp import getgrall as get_all_groups
+from openerplib import AttrDict
 from pwd import getpwuid, getpwnam as get_pw_entry
 from scandir import scandir
 from scription import *
@@ -98,38 +100,46 @@ else:
 
 @Script()
 def main():
+    syslog.syslog(' '.join([repr(a) for a in sys.argv]))
     if os.getuid() == 0:
         module.AS_ROOT = True
+        print('running as root')
+        syslog.syslog('running as root')
     else:
+        syslog.syslog('running as user')
         # only allow user functions
-        if module.script_command not in (
+        if module.script_command_name not in (
                 'create-file', 'delete-file', 'change-file',
                 'create-folder', 'delete-folder', 'change-folder',
                 ):
-            abort('must be root to run %r' % module.script_command)
-        module.AS_USER = pwd.getpwuid(os.getuid()).pw_name
+            syslog.syslog('must be root to run %r' % module.script_command_name)
+            abort('must be root to run %r' % module.script_command_name)
+        module.AS_USER = getpwuid(os.getuid()).pw_name
+        print('running as', module.AS_USER)
 
 
 #------------------------
 # daemon control commands
 #------------------------
 
-@Command()
-def restart():
+@Command(timeout=('time to wait for daemon to start', OPTION, 't', int), )
+def restart(timeout=10):
     'stop and start the FnxFS system'
     try:
         _stop()
     except SystemExit, exc:
-        if exc.code != 32:
-            # 32 -> not mounted
-            raise
-    _start()
+        pass
+        # if exc.code != 32 and 'not mounted' not in:
+        #     # 32 -> not mounted
+        #     raise
+    _start(timeout)
 
 
-@Command()
-def start():
+@Command(timeout=('time to wait for daemon to start', OPTION, 't', int), )
+def start(timeout=10):
     'Start the FnxFS system'
-    _start()
+    print('timeout is %r <%s>' % (timeout, type(timeout)))
+    _start(timeout)
 
 
 @Command()
@@ -142,77 +152,50 @@ def stop():
 # FnxFS interaction commands
 #---------------------------
 
-@@command()
+@Command()
 def change_file():
     pass
 
 
 @Command(
-        source=('complete path/filename of file to share', REQUIRED, ),
+        source=('path/filename of file to share (starting from /home/[user]/)', REQUIRED, None, Path),
         folder=('folder to publish file under', REQUIRED, ),
         share_as=('new name to share file as', OPTION, ),
         permissions=('permissions type: "inherit" or "custom"', OPTION, ),
-        read_users('with "custom" permissions, list of users to grant read-access to', MULTI, ),
+        read_users=('with "custom" permissions, list of users to grant read-access to', MULTI, ),
         write_users=('with "custom" permissions, list of users to grant read/write-access to', MULTI, ),
         note=('option note about this file', OPTION, ),
-        as_user('run as different user (must be root!', FLAG, ),
+        as_user=('run as different user (must be root!', FLAG, ),
         config=('location of configuration file', OPTION, None, Path),
         )
 def create_file(source, folder, share_as=None, permissions='inherit', read_users=(), write_users=(), note=None, as_user=None, config='/usr/local/etc/fnxfs_credentials'):
-    config = OrmFile(config)
-    if as_user and not AS_ROOT:
-        # can only specify a different user than self if running as root
-        abort('must run as root to specify a different user than you')
-    login = as_user or AS_USER
-    superuser = openerplib.get_connection(hostname=config.openerp, database=config.database, login='admin', password=config.server_pass)
-    res = AttrDict()
-    res.users = superuser.get_model('res.users')
-    users = dict([(u.login, u.id) for u in res.users.search_read([], fields=['id', 'login'])])
-    user = users.get(login)
-    if user is None:
-        abort('user %r does not exist in OpenERP' % login)
-    user = openerplib.get_connection(hostname=config.openerp, database=config.database, login=login, password=user.password)
-
-    fnx = AttrDict()
-    fnx.fs = AttrDict()
-    fnx.fs.folder = user.get_model('fnx.fs.folder')
-    fnx.fs.file = user.get_model('fnx.fs.file')
+    oe, context = _interactive_oe_setup(as_user, config)
     values = {}
-    values['folder_id'] = fnx.fs.folder.search([('name','=',folder)], max_qty='1')[0].id
+    values['file_name'] = str(source.filename)
+    values['file_path'] = str(Path('/home/%s/' % oe.user.login) * source)
+    folder_rec = oe.fnx.fs.folder.search_read([('name','=',folder)], fields=['id','name','path'])
+    if not folder_rec:
+        abort('folder %s does not exist' % folder)
+    target_folder = Path('/home/%s/FnxFS/%s' % (oe.user.login, folder_rec[0].path))
+    print('checking folder:', target_folder)
+    if not target_folder.exists():
+        abort('folder %s does not exist' % target_folder)
+    else:
+        values['folder_id'] = folder_rec[0].id
     if share_as is not None:
         values['shared_as'] = share_as
     if permissions is not None:
-        values['perm_type'] == permissions
-    ro = []
-    errors = []
-    for login in read_users:
-        # read_users is a bunch of login names; e.g. ('ethan', 'emile', 'tony')
-        id = users.get(login)
-        if id is None:
-            errors.append(login)
-        else:
-            ro.append(id)
-    if errors:
-        abort('unable to find users: %s' % ', '.join(errors))
+        values['perm_type'] = permissions
+    ro = _get_oe_user_ids(oe, read_users)
     if ro:
-        values['readonly_ids'] = ro
-    rw = []
-    errors = []
-    for login in write_users:
-        # write_users is a bunch of login names; e.g. ('ethan', 'emile', 'tony')
-        id = users.get(login)
-        if id is None:
-            errors.append(login)
-        else:
-            ro.append(id)
-    if errors:
-        abort('unable to find users: %s' % ', '.join(errors))
+        values['readonly_ids']
+    rw = _get_oe_user_ids(oe, write_users)
     if rw:
         values['readwrite_ids'] = rw
     if note:
         values['notes'] = note
-
-    fnx.fs.create(values)
+    print('creating file')
+    oe.fnx.fs.file.create(values, context)
 
 
 @Command()
@@ -1806,7 +1789,49 @@ class Accessed(object):
                 if file_name in files:
                     return path
 
-def _start():
+def _interactive_oe_setup(user, config):
+    config = OrmFile(config)
+    if user and not AS_ROOT:
+        # can only specify a different user than self if running as root
+        abort('must run as root to specify a different user than you')
+    if AS_ROOT and not user:
+        help('must specify the user to impersonate')
+    login = user or AS_USER
+    superuser = openerplib.get_connection(hostname=config.openerp, database=config.database, login='admin', password=config.server_pass)
+    oe = AttrDict()
+    oe.res = AttrDict()
+    print('getting account')
+    oe.res.users = superuser.get_model('res.users')
+    oe.users = dict([(u.login, u.id) for u in oe.res.users.search_read([], fields=['id', 'login'])])
+    user_id = oe.users.get(login)
+    if user_id is None:
+        abort('user %r does not exist in OpenERP' % login)
+    user_password = openerplib.get_records(oe.res.users, ids=user_id, fields=['password']).password
+    oe.user = openerplib.get_connection(hostname=config.openerp, database=config.database, login=login, password=user_password)
+    context = oe.user.get_user_context()
+    context['__client_address__'] = get_local_ip(config.openerp)
+    print('loading modules')
+    oe.fnx = AttrDict()
+    oe.fnx.fs = AttrDict()
+    oe.fnx.fs.folder = oe.user.get_model('fnx.fs.folder')
+    oe.fnx.fs.file = oe.user.get_model('fnx.fs.file')
+    return oe, context
+
+def _get_oe_user_ids(oe, logins):
+    'convert list of logins to OE user ids'
+    errors = []
+    res = []
+    for login in logins:
+        id = oe.users.get(login)
+        if id is None:
+            errors.append(login)
+        else:
+            res.append(id)
+    if errors:
+        abort('unable to find users: %s' % ', '.join(errors))
+    return res
+
+def _start(timeout):
     # ideal setup
     #   /home/.shadow has user data
     #   /home/.fnxfs_mirror does not exist
@@ -1837,7 +1862,7 @@ def _start():
         print(result.stdout, verbose=0)
         print(result.stderr, file=stderr)
         raise SystemExit(result.returncode)
-    tries = wait_and_check(10)
+    tries = wait_and_check(timeout)
     while tries:
         exc = None
         try:
@@ -1871,7 +1896,7 @@ def _stop():
     result = Execute('umount %s' % SHADOW)
     if result.returncode:
         print(result.stdout, verbose=0)
-        print(result.stderr, file=stderr)
+        print(result.returncode, result.stderr, file=stderr)
         raise SystemExit(result.returncode)
     exc = None
     retries = wait_and_check(10)

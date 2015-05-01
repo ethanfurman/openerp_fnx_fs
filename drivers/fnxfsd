@@ -870,7 +870,12 @@ class FnxFS(object):
                                 raise OSError(ENOLINK, 'remote link down')
                         # save share uid/gid
                         LOGGER.debug('actual user: %r', user)
-                        entry = get_pw_entry(elements[1])
+                        try:
+                            entry = get_pw_entry(elements[1])
+                        except KeyError:
+                            # user has been removed from system?
+                            self._check_permissions()
+                            _no_access()
                         LOGGER.debug('effective user: %r', entry.pw_name)
                         CONTEXT.share_uid = entry.pw_uid
                         CONTEXT.share_gid = entry.pw_gid

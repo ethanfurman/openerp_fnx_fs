@@ -64,6 +64,31 @@ PERIOD_TYPE = (
 permissions_lock = threading.Lock()
 mount_lock = threading.Lock()
 
+
+def _folder_access(self, cr, uid, folder):
+    '''return user access to folder
+
+    folder -> fnx.fs.folder browse object
+    return -v
+            0 - no access
+            1 - read access
+            2 - write access
+            4 - create/delete access
+    '''
+    access = 0
+    if any(u.id == uid for u in folder.readonly_ids):
+        access = 1
+    if any(u.id == uid for u in folder.readwrite_ids):
+        access = 2
+        if folder.collaborative:
+            access = 3
+    if access and folder.parent_id:
+        # check all parents to make sure user can see this folder
+        folder = folder.parent_id
+        if not any(u.id == uid for u in (folder.readonly_ids + folder.readwrite_ids)):
+            return 0
+    return access
+
 def _remote_locate(user, file_name, context=None):
     if context is None:
         context = {}
@@ -84,6 +109,17 @@ def _remote_locate(user, file_name, context=None):
     elif status == 'exception':
         raise Exception(result)
     return Path(result.strip())
+
+def _user_level(obj, cr, uid, context=None):
+    user = obj.pool.get('res.users').browse(cr, SUPERUSER, uid, context=context)
+    if user.has_group('fnx_fs.manager'):
+        return 'manager'
+    elif user.has_group('fnx_fs.creator'):
+        return 'creator'
+    elif user.has_group('fnx_fs.consumer'):
+        return 'consumer'
+    else:
+        raise ERPError('Programming Error', 'Cannot find FnxFS group in %r' % groups)
 
 def write_mount(oe, cr):
     fnxfs_folder = oe.pool.get('fnx.fs.folder')
@@ -259,17 +295,6 @@ class fnx_fs_folder(osv.Model):
                     )
         return path
 
-    def _user_level(self, cr, uid, context=None):
-        user = self.pool.get('res.users').browse(cr, SUPERUSER, uid, context=context)
-        if user.has_group('fnx_fs.manager'):
-            return 'manager'
-        elif user.has_group('fnx_fs.creator'):
-            return 'creator'
-        elif user.has_group('fnx_fs.consumer'):
-            return 'consumer'
-        else:
-            raise ERPError('Programming Error', 'Cannot find FnxFS group in %r' % groups)
-
     _name = 'fnx.fs.folder'
     _description = 'FnxFS folder'
     _rec_name = 'path'
@@ -345,7 +370,7 @@ class fnx_fs_folder(osv.Model):
             ),
         }
     _sql_constraints = [
-        ('folder_uniq', 'unique(name)', 'Folder already exists in system.'),
+        ('folder_path_uniq', 'unique(path)', 'Folder already exists in system.'),
         ]
     _defaults = {
         'readonly_type': lambda *a: 'selected',
@@ -356,6 +381,8 @@ class fnx_fs_folder(osv.Model):
         }
 
     def create(self, cr, uid, values, context=None):
+        if _user_level(self, cr, uid, context=context) == 'consumer':
+            raise ERPError('Permission Denied', 'consumers cannot create folders')
         if '/' in values['name']:
             raise ERPError('Error', 'Cannot have "/" in the folder name.')
         parent_id = values.get('parent_id')
@@ -365,10 +392,10 @@ class fnx_fs_folder(osv.Model):
                 raise ERPError('Incompatible Folder', 'Only Virtual folders can have subfolders')
         folder = self._get_path(cr, uid, parent_id, values['name'], context=context)
         if values['folder_type'] != 'shared':
-            user_level = self._user_level(cr, uid, context=context)
+            user_type = _user_level(self, cr, uid, context=context)
             if (
-                user_level == 'consumer' or
-                user_level == 'creator' and values['folder_type'] == 'mirrored'
+                user_type == 'consumer' or
+                user_type == 'creator' and values['folder_type'] == 'mirrored'
                 ):
                 raise ERPError('User Error', 'You cannot create folders of that type.')
         if values.get('file_folder_name'):
@@ -491,7 +518,7 @@ class fnx_fs_folder(osv.Model):
     def unlink(self, cr, uid, ids, context=None):
         if isinstance(ids, (int, long)):
             ids = [ids]
-        user_level = self._user_level(cr, uid, context=context)
+        user_type = _user_level(self, cr, uid, context=context)
         to_be_deleted = []
         to_be_unmounted = []
         folders = self.browse(cr, uid, ids, context=context)
@@ -499,15 +526,15 @@ class fnx_fs_folder(osv.Model):
             # TODO: check for files and issue nice error message
             path = self._get_path(cr, uid, folder.parent_id.id, folder.name, context=context)
             if folder.folder_type == 'shared':
-                if user_level != 'manager' and folder.share_owner_id.id != uid:
+                if user_type != 'manager' and folder.share_owner_id.id != uid:
                     raise ERPError('Error', 'Only %s or a manager can delete this share' % folder.share_owner_id.name)
                 to_be_unmounted.append((folder.id, path))
             elif folder.folder_type == 'reflective':
-                if user_level != 'manager':
+                if user_type != 'manager':
                     raise ERPError('Error', 'Only managers can remove Mirrored folders')
                 to_be_unmounted.append((folder.id, path))
             elif folder.folder_type == 'virtual':
-                if user_level != 'manager':
+                if user_type != 'manager':
                     raise ERPError('Error', 'Only managers can remove Virtual folders')
                 to_be_deleted.append(path)
             else:
@@ -546,7 +573,7 @@ class fnx_fs_file(osv.Model):
     def fnx_fs_publish_file(self, cr, uid, ids, context=None):
         if isinstance(ids, (int, long)):
             ids = [ids]
-        res_users = self.pool.get('res.users')
+        # res_users = self.pool.get('res.users')
         records = self.browse(cr, uid, ids, context=context)
         if uid != SUPERUSER:
             for rec in records:
@@ -678,13 +705,13 @@ class fnx_fs_file(osv.Model):
             else:
                 file_path = Path(file_path)
                 values['file_name'] = values.get('file_name', file_path.filename)
-            user = get_user_login(self, cr, uid, owner_id)
+            user = get_user_login(self, cr, SUPERUSER, owner_id)
             folder = fnx_fs_folder.browse(cr, uid, folder_id, context=context).path
             new_env = os.environ.copy()
             new_env['SSHPASS'] = server_root
             if file_path is None:
                 uid = context.get('uid')
-                res_users = self.pool.get('res.users')
+                # res_users = self.pool.get('res.users')
                 try:
                     path = _remote_locate(user, file_name, context=context)
                 except Exception, exc:
@@ -724,7 +751,7 @@ class fnx_fs_file(osv.Model):
         res = {}
         res['value'] = values = {}
         if uid == SUPERUSER or file_type != 'normal':
-            values['user_id'] = self.pool.get('res.users').browse(cr, uid, [('login','=','openerp')], context=context)[0].id
+            values['user_id'] = self.pool.get('res.users').browse(cr, SUPERUSER, [('login','=','openerp')], context=context)[0].id
         else:
             values['user_id'] = uid
         return res
@@ -813,8 +840,9 @@ class fnx_fs_file(osv.Model):
         }
 
     _sql_constraints = [
-            ('file_uniq', 'unique(file_name)', 'File already exists in system.'),
-            ('shareas_uniq', 'unique(shared_as)', 'Shared As name already exists in system.'),
+            ('full_name_uniq', 'unique(full_name)', 'Path/File already exists in system.'),
+            # ('file_uniq', 'unique(file_name)', 'File already exists in system.'),
+            # ('shareas_uniq', 'unique(shared_as)', 'Shared As name already exists in system.'),
             ]
     _defaults = {
         'user_id': lambda s, c, u, ctx={}: u != 1 and u or '',
@@ -825,9 +853,18 @@ class fnx_fs_file(osv.Model):
         }
 
     def create(self, cr, uid, values, context=None):
-        folder = self.pool.get('fnx.fs.folder').browse(cr, uid, values['folder_id'], context=context)
+        folders = self.pool.get('fnx.fs.folder')
+        if isinstance(values['folder_id'], basestring):
+            target = folders.browse(self, cr, SUPERUSER, [('full_path','=',values['folder_id'])])
+            if not target:
+                raise ERPError('Folder Missing', 'folder %r does not exist' % values['folder_id'])
+            folder = target[0]
+        else:
+            folder = folders.browse(cr, SUPERUSER, values['folder_id'], context=context)
         if folder.folder_type != 'virtual':
-            raise ERPError('Invalid Folder', 'Files can only be saved into Virtual folders')
+            raise ERPError('Invalid Folder', 'files can only be saved into Virtual folders')
+        elif _user_level(self, cr, uid, context=contex) != 'manager' and _folder_access(self, cr, uid, folder) != 3:
+            raise ERPError('Permission Denied', 'no create access to folder')
         vals = PropertyDict(values)
         if vals.perm_type == 'inherit':
             vals.pop('readonly_ids', None)
@@ -843,13 +880,13 @@ class fnx_fs_file(osv.Model):
             source_file = Path(vals.file_name)
             if shared_as.ext != '.' and shared_as.ext != source_file.ext:
                 vals.shared_as = shared_as + source_file.ext
-            self._get_remote_file(cr, uid, vals, file_path=vals.get('file_path'), context=context)
+            self._get_remote_file(cr, uid, vals, file_path=vals.pop('file_path'), context=context)
         elif vals.file_type == 'normal':
             if not shared_as.ext:
                 raise ERPError('Error', 'Shared name should have an extension indicating file type.')
-        new_id = super(fnx_fs_file, self).create(cr, uid, dict(vals), context=context)
+        new_id = super(fnx_fs_file, self).create(cr, SUPERUSER, dict(vals), context=context)
         write_permissions(self, cr)
-        current = self.browse(cr, uid, new_id)
+        current = self.browse(cr, SUPERUSER, new_id)
         if vals.file_type == 'normal' and not vals.file_name:
             open(fs_root/current.folder_id.path/current.shared_as, 'w').close()
         return new_id
@@ -918,6 +955,16 @@ class fnx_fs_file(osv.Model):
         success = super(fnx_fs_file, self).write(cr, uid, ids, values, context=context)
         write_permissions(self, cr)
         return success
-fnx_fs_file()
+
+
+class res_users(osv.Model):
+    _inherit = 'res.users'
+    
+    def unlink(self, cr, uid, ids, context=None):
+        result = super(res_users, self).unlink(cr, uid, ids, context=context)
+        if ids:
+            write_permissions(self, cr)
+        return result
+
 
 # vim:expandtab:smartindent:tabstop=4:softtabstop=4:shiftwidth=4:

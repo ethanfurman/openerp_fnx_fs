@@ -122,6 +122,7 @@ def _user_level(obj, cr, uid, context=None):
         raise ERPError('Programming Error', 'Cannot find FnxFS group in %r' % groups)
 
 def write_mount(oe, cr):
+    return
     fnxfs_folder = oe.pool.get('fnx.fs.folder')
     with mount_lock:
         lines = []
@@ -147,6 +148,7 @@ def write_mount(oe, cr):
             data.write(''.join(lines))
 
 def write_permissions(oe, cr):
+    return
     # write a file in the form of:
     #
     # rgiannini:read:/Q&A/*

@@ -330,16 +330,18 @@ def start_smb(source, options, mount):
     """
     source = '"%s"' % source
     mount = '"%s"' % mount
-    command = ['/bin/mount', source] + options.split() + [mount]
+    command = ['/bin/mount', ] + options.split() + [source, mount]
     command =  ' '.join(command)
     with open('/var/log/fnxfs_debug', 'a+') as debug:
         debug.write(command + '\n')
-    return commands.getoutput(command)
-    #output = Execute(command, password=server_root)
-    #result = ''
-    #if output.stdout:
-    #    result += output.stdout
-    #return result.replace('Password:','').strip()
+    # return commands.getoutput(command)
+    output = Execute(command, password=server_root, pty=True)
+    result = ''
+    if output.stdout or output.returncode:
+        print(output.stdout) #, verbose=0)
+        print(output.stderr) #, file=stderr)
+        raise SystemExit(output.returncode)
+    return result.replace('Password:','').strip()
 
 def start_sshfs(source, mount):
     """

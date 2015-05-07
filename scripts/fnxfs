@@ -134,6 +134,7 @@ def cp(
         freq=Spec('how often to republish file [only for "auto-publish" files]', OPTION, abbrev=None, default=''),
         )
 def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq):
+    "create new shared file, specifying share and permission types, user access, description, etc."
     settings = get_settings()
     # get names for source and destination
     src_filename = src.filename
@@ -192,6 +193,7 @@ def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq):
         desc=Spec('short description of folder', OPTION, abbrev=None, default=''),
         )
 def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc):
+    "create a new folder, specifying share and permission types, user access, and description"
     settings = get_settings()
     # check that folder doesn't already exist
     name = name.rstrip('/')
@@ -218,6 +220,21 @@ def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc):
         folders.write('%s\n' % '\t'.join([name, styp, ptyp, ','.join(ro_users), ','.join(rw_users), ','.join(cd_users), desc]))
     # step 2: update permissions file
     write_permissions()
+
+
+@Command(
+        login=('user to create', ),
+        level=Spec('privilege level', choices=['consumer', 'creator', 'manager'], default='consumer'),
+        )
+def create_user(login, level):
+    "create a new user, and assign privilege level"
+    # TODO: allow specification of permissions for folders and files
+    settings = get_settings()
+    if login in settings.users:
+        abort('user <%s> already exists (use "show" for details' % login)
+    with open(USERS, 'a') as users:
+        users.write('%s\t%s\n' % (login, level))
+    write_permissions()        
 
 
 @Command(
@@ -303,6 +320,7 @@ def shares(subcommand, share=''):
         all_users=Spec('list all users', FLAG),
         )
 def show(name, all_users):
+    "display information about a user/file/folder"
     settings = get_settings()
     if not (name or all_users):
         help('nothing to do')
@@ -334,6 +352,7 @@ def show(name, all_users):
         include_files=Spec('display files', FLAG, 'f'),
         )
 def tree(path, include_files, _prefix='', _files=defaultdict(list), _pool={}):
+    "display a tree of the folder/file structure in FnxFS"
     if not _pool:
         print('entering tree()')
     # transform settings
@@ -412,7 +431,7 @@ def copy(src, dst, timeout):
         archive_dst.makedirs() #owner=openerp_ids)
     if not dst.exists():
         dst.makedirs() #owner=openerp_ids)
-    with PidLockFile(archive_dst/'locked.pid', time_out=timeout):
+    with PidLockFile(archive_dst/'locked.pid', timeout=timeout):
         src.copy(dst)
         # dst.chown(*openerp_ids)
         if archive_needed(dst):

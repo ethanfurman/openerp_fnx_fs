@@ -29,7 +29,7 @@ class TestFnxFS(TestCase):
 
     @skip
     def test_consumer_create_virtual_folder_fails(self):
-        pass
+        self.assertRaises(IOError, create_folder, consumer2, 'test_consumer1_virtual'
 
     @skip
     def test_consumer_create_mirror_folder_fails(self):
@@ -159,10 +159,10 @@ class TestFnxFS(TestCase):
 
 
 
-def login(user):
-    'return an OE instance for USER'
-    OE = AttrDict()
-    OE.conn = get_connection(hostname=config.openerp, database=config.database, login=user.login, password=user.password)
+# def login(user):
+#     'return an OE instance for USER'
+#     OE = AttrDict()
+#     OE.conn = get_connection(hostname=config.openerp, database=config.database, login=user.login, password=user.password)
 
 def create_file(user, file, folder, share_as=None, permission_type=None, read_users=None, write_users=None, note=None):
     params = ['fnxfsd', 'create-file', file, folder]
@@ -222,27 +222,27 @@ class temp_file(object):
         return self
     def __exit__(self, *args):
         self.name.unlink()
-        for oe_file_id in fnxfs.file.search([('shared_as','=',self.oe_name)]):
-            fnxfs.file.unlink(oe_file_id)
+        # for oe_file_id in fnxfs.file.search([('shared_as','=',self.oe_name)]):
+        #     fnxfs.file.unlink(oe_file_id)
 
 
 
 config = OrmFile('/usr/local/etc/fnxfs_credentials')
 
-conn = get_connection(hostname=config.openerp, database=config.database, login='admin', password=config.server_pass)
-res = AttrDict()
-res.groups = conn.get_model('res.groups')
-res.users = conn.get_model('res.users')
-
-fnxfs = AttrDict()
-[consumer] = get_records(conn, 'ir.model.data', domain=[('module','=','fnx_fs'),('model','=','res.groups'),('name','=','consumer')])
-[creator] = get_records(conn, 'ir.model.data', domain=[('module','=','fnx_fs'),('model','=','res.groups'),('name','=','creator')])
-[manager] = get_records(conn, 'ir.model.data', domain=[('module','=','fnx_fs'),('model','=','res.groups'),('name','=','manager')])
-[fnxfs.consumer] = get_records(res.groups, domain=[('id','=',consumer.res_id)])
-[fnxfs.creator] = get_records(res.groups, domain=[('id','=',creator.res_id)])
-[fnxfs.manager] = get_records(res.groups, domain=[('id','=',manager.res_id)])
-fnxfs.file = conn.get_model('fnx.fs.file')
-fnxfs.folder = conn.get_model('fnx.fs.folder')
+# conn = get_connection(hostname=config.openerp, database=config.database, login='admin', password=config.server_pass)
+# res = AttrDict()
+# res.groups = conn.get_model('res.groups')
+# res.users = conn.get_model('res.users')
+# 
+# fnxfs = AttrDict()
+# [consumer] = get_records(conn, 'ir.model.data', domain=[('module','=','fnx_fs'),('model','=','res.groups'),('name','=','consumer')])
+# [creator] = get_records(conn, 'ir.model.data', domain=[('module','=','fnx_fs'),('model','=','res.groups'),('name','=','creator')])
+# [manager] = get_records(conn, 'ir.model.data', domain=[('module','=','fnx_fs'),('model','=','res.groups'),('name','=','manager')])
+# [fnxfs.consumer] = get_records(res.groups, domain=[('id','=',consumer.res_id)])
+# [fnxfs.creator] = get_records(res.groups, domain=[('id','=',creator.res_id)])
+# [fnxfs.manager] = get_records(res.groups, domain=[('id','=',manager.res_id)])
+# fnxfs.file = conn.get_model('fnx.fs.file')
+# fnxfs.folder = conn.get_model('fnx.fs.folder')
 
 folders = []
 files = []
@@ -255,12 +255,12 @@ passwords = {
     'manager2':  ''.join(sample(ascii_letters, 10)),
     }
 
-consumer1 = AttrDict(name='FnxFS Test Consumer 1', login='fnxfs_consumer1', password=passwords['consumer1'], groups_id=[(4, fnxfs.consumer.id)])
-consumer2 = AttrDict(name='FnxFS Test Consumer 2', login='fnxfs_consumer2', password=passwords['consumer2'], groups_id=[(4, fnxfs.consumer.id)])
-creator1 = AttrDict(name='FnxFS Test Creator 1', login='fnxfs_creator1', password=passwords['creator1'], groups_id=[(4, fnxfs.creator.id)])
-creator2 = AttrDict(name='FnxFS Test Creator 2', login='fnxfs_creator2', password=passwords['creator2'], groups_id=[(4, fnxfs.creator.id)])
-manager1 = AttrDict(name='FnxFS Test Manager 1', login='fnxfs_manager1', password=passwords['manager1'], groups_id=[(4, fnxfs.manager.id)])
-manager2 = AttrDict(name='FnxFS Test Manager 2', login='fnxfs_manager2', password=passwords['manager2'], groups_id=[(4, fnxfs.manager.id)])
+consumer1 = AttrDict(name='FnxFS Test Consumer 1', login='fnxfs_consumer1', password=passwords['consumer1']) #, groups_id=[(4, fnxfs.consumer.id)])
+consumer2 = AttrDict(name='FnxFS Test Consumer 2', login='fnxfs_consumer2', password=passwords['consumer2']) #, groups_id=[(4, fnxfs.consumer.id)])
+creator1 = AttrDict(name='FnxFS Test Creator 1', login='fnxfs_creator1', password=passwords['creator1']) #, groups_id=[(4, fnxfs.creator.id)])
+creator2 = AttrDict(name='FnxFS Test Creator 2', login='fnxfs_creator2', password=passwords['creator2']) #, groups_id=[(4, fnxfs.creator.id)])
+manager1 = AttrDict(name='FnxFS Test Manager 1', login='fnxfs_manager1', password=passwords['manager1']) #, groups_id=[(4, fnxfs.manager.id)])
+manager2 = AttrDict(name='FnxFS Test Manager 2', login='fnxfs_manager2', password=passwords['manager2']) #, groups_id=[(4, fnxfs.manager.id)])
 
 
 
@@ -270,7 +270,7 @@ def setup():
         Execute('useradd -m %s' % user.login)
         Path.mkdir('/home/.shadow/%s' % user.login)
         Path.symlink('/home/.shadow/%s/FnxFS' % user.login, '/home/%s/FnxFS' % user.login)
-        user.id = res.users.create(dict(user))
+        # user.id = res.users.create(dict(user))
     folders.append(fnxfs.folder.create({'name':'test_virtual1', 'readonly_type':'all', 'readwrite_ids':[(6, 0, (consumer1.id, creator1.id, manager1.id))], 'share_owner_id':1, 'collaborative':1}))
     folders.append(fnxfs.folder.create({'name':'test_virtual2', 'readonly_type':'all', 'readwrite_ids':[(6, 0, (consumer1.id, creator1.id, manager1.id))], 'share_owner_id':1}))
     # folders.append(fnxfs.folder.create({'name':'test_mirrored', 'folder_type':'reflective', 'readonly_type':'all', 'readwrite_ids':[consumer1.id, creator1.id, manager1.id], 'share_owner_id':1}))

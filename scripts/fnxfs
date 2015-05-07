@@ -1,113 +1,83 @@
 #!/usr/local/bin/suid-python
 from __future__ import print_function
-"""
-script to interact with OpenERP FnxFS system.
-
-Return codes:
-    0   all is well
-    1   error(s) occurred, but goal acheived
-    2+  error(s) occurred, goal not achieved
-"""
-
 import pandaemonium
-
 from collections import defaultdict
 from dbf import DateTime
 from getpass import getpass
 from pandaemonium import Daemon, PidLockFile, FileTracker, STDOUT, STDERR
 from antipathy import Path
+from openerplib import AttrDict
+from pandaemonium import PidLockFile
 from scription import *
-from subprocess import check_output, CalledProcessError, Popen, PIPE, STDOUT
-from VSS.time_machine import PropertyDict
+from subprocess import Popen, PIPE, STDOUT
 import commands
 import errno
 import logging
-import openerplib
 import os
 import pwd
 import sys
 import time
 
-openerp_ids = tuple(pwd.getpwnam('openerp')[2:4])
-
-os.setuid(0)
-os.setgid(0)
-
-log_file = Path('/var/log/openerp/sshfs.log')
-open(log_file, 'w').close()
-log_file.chown(*openerp_ids)
-
 FileTracker.install()
-logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
 
-fh = logging.FileHandler(
-        filename='/var/log/openerp/sshfs.log',
+LOG_FILE = Path('/var/log/openerp/fnxfs.log')
+FNXFS_LOCK = PidLockFile('/var/run/fnxfs.pid', timeout=60)
+with open(LOG_FILE, 'a') as logger:
+    pass
+
+LOGGER = logging.getLogger()
+LOGGER.setLevel(logging.DEBUG)
+FH = logging.FileHandler(
+        filename=LOG_FILE,
         encoding='utf8',
         )
-fh.setLevel(logging.DEBUG)
-fh.setFormatter(logging.Formatter("%(asctime)-30s %(name)-40s %(message)s"))
+FH.setLevel(logging.WARNING)
+FH.setFormatter(logging.Formatter("%(asctime)-30s %(name)-40s %(message)s"))
+LOGGER.addHandler(FH)
 
-logger.addHandler(fh)
+config = OrmFile('/etc/openerp/fnxfs_credentials')
 
 
-fs_root = Path('/var/openerp/fnxfs')
-archive_root = Path('/var/openerp/fnxfs_archive')
-fnxfs_mount = Path('/etc/openerp/fnxfs.mount')
-fnxfs_mount_pids = Path('/var/run/%s.pid')
-OE = PropertyDict()
-
-sshfs_options = [
-        #'-f',
-        '-o','allow_other',
-        #'-o','kernel_cache',
-        '-o','StrictHostKeyChecking=no',
-        '-o','password_stdin',
-        '-o','reconnect',
-        '-o','compression=no',
-        '-o','cache_timeout=0',
-        '-o','ServerAliveInterval=5',
-        '-o','workaround=rename',
-        ]
-
-execfile('/etc/openerp/credentials')
-execfile('/etc/openerp/fnxfs_credentials')
+@Script()
+def main():
+    print('entering main()')
+    with FNXFS_LOCK:
+        print('calling %s' % script_command_name)
+        script_command()
 
 
 @Command(
         src=('file to archive', REQUIRED, 'f', Path),
         )
 def archive(src):
-    """
-    copy existing FnxFS file into the archive
-    """
+    "copy existing FnxFS file into the archive"
     if not src.exists():
         abort('source file does not exist')
     if archive_needed(src):
-        archive_dst = archive_root / (src - fs_root)
+        archive_dst = ARCHIVE_ROOT / (src - FS_ROOT)
         if not archive_dst.exists():
-            archive_dst.makedirs(owner=openerp_ids)
+            archive_dst.makedirs() #owner=openerp_ids)
         with PidLockFile(archive_dst/'locked.pid'):
             archive_dst = next_archive_name(archive_dst)
             src.copy(archive_dst)
-            src.chown(*openerp_ids)
+            # src.chown(*openerp_ids)
 
 
-@Command(
-        )
-def clean_slate():
-    """
-    Removes all files entries from OpenERP, leaves folders in place but removes permissions.
-    Does not touch files on disk.
-    """
-    connect_oe(host, db, user, pw)
-    file_ids = OE.fs_file.search([(1,'=',1)])
-    OE.fs_file.unlink(file_ids, context={'keep_files':True})
+# @Command(
+#         )
+# def clean_slate():
+#     """
+#     Removes all files entries from OpenERP, leaves folders in place but removes permissions.
+#     Does not touch files on disk.
+#     """
+#     connect_oe(host, db, user, pw)
+#     file_ids = OE.fs_file.search([(1,'=',1)])
+#     OE.fs_file.unlink(file_ids, context={'keep_files':True})
 
 
 @Command(
         src=('file to copy', REQUIRED, 's', Path),
-        dst=('where to put it (and possibly new name', REQUIRED, 'd', Path),
+        dst=('where to put it (and possibly new name)', REQUIRED, 'd', Path),
         timeout=('how long to wait for lock', OPTION, 't', int),
         force=('make copy even if no record of file exists in OpenERP', FLAG),
         )
@@ -117,15 +87,13 @@ def cp(
         timeout=10,
         force=False
         ):
-    """
-    copy file/folder into FnxFS structure, also archiving it
-    """
+    "copy file/folder into FnxFS structure, also archiving it"
     os.setuid(0)
     os.setgid(0)
     if not src.isdir():
         if not dst.exists() and not force:
             abort('destination file does not exist (use --force to copy anyway)')
-        _cp(src, dst, timeout)
+        copy(src, dst, timeout)
     else:
         for dirpath, dirnames, filenames in src.walk():
             for fn in filenames:
@@ -146,75 +114,102 @@ def cp(
                 new_fn = new_fn.replace('%20', ' ')
                 new_fn = ''.join([ch for ch in new_fn if ord(ch) < 128])
                 new_fn = fn.path / new_fn
-                _cp(dirpath/fn, dst/dirpath/new_fn, timeout)
+                copy(dirpath/fn, dst/dirpath/new_fn, timeout)
 
-
-def _cp(src, dst, timeout):
-    archive_dst = archive_root / (dst - fs_root)
-    if not archive_dst.exists():
-        archive_dst.makedirs(owner=openerp_ids)
-    if not dst.exists():
-        dst.makedirs(owner=openerp_ids)
-    with PidLockFile(archive_dst/'locked.pid', time_out=timeout):
-        src.copy(dst)
-        dst.chown(*openerp_ids)
-        if archive_needed(dst):
-            archive_dst = next_archive_name(archive_dst)
-            src.copy(archive_dst)
-            archive_dst.chown(*openerp_ids)
 
 @Command(
-        folder=('Specific folder to copy (default is all)', OPTION),
+        name=Spec('name of new folder', type=Path, abbrev=None),
+        styp=Spec('share type', OPTION, choices=['mirror', 'share', 'virtual'], abbrev=None, default='virtual'),
+        ptyp=Spec('permission type', OPTION, choices=['custom', 'inherit'], abbrev=None, default='inherit'),
+        ro_users=Spec('users with read-only access', MULTI, abbrev=None),
+        rw_users=Spec('users with read-write access [only for "virtual" folders', MULTI, abbrev=None),
+        cd_users=Spec('users with create/delete access [only for "virtual" folders]', MULTI, abbrev=None),
+        desc=Spec('short description of folder', OPTION, abbrev=None, default=''),
         )
-def copy_usershares(folder):
-    """
-    Add files and folders found in UserShares.
-    """
-    #
-    # For each share we care about:
-    # 1. mount share in /var/openerp/11-145-...
-    # 2. for each folder there:
-    #    a) create an entry in FnxFS/Folders
-    #    b) copy permissions from parent folder
-    #    c) create folder in /var/openerp/fnxfs/[parent dirs...]
-    # 3. for each file there:
-    #    d) create on entry in FnxFs/Files
-    #    e) use permissions from containing folder
-    #    f) touch file in parent directory
-    #    g) use 'cp' command to copy and archive
-    # 4. unmount share
-    #
-    # Notes:
-    #    ignore symbolic links
-    #    ignore directories with '\' in the name
-    #    ignore files named 'touch'
-    #    ignore files named backup*.log
-    #    ignore hidden files
-    #    ignore Thumbs.db (any case)
-    #    strip spaces from names (e.g. ' CoAFormat013112')
-    #    convert %20 to space
-    #    convert files starting with .75 to 0.75
-    #    drop characters outside ASCII range
-    #
-    folder_names = {
-            'qcmanagement': 'Quality Control',
-            'qc_scratch':   'Quality Control/Scratch',
-            'r-and-d':      'Research & Development',
-            'marketing':    'Marketing',
-            #'DropEmployeeHeadshotsHere':    'Human Resources/Headshots',
-            'hr':           'Human Resources',
-            #'121Shared':    'To Be Renamed',
-            }
-    password = getpass('password for remote mounts')
-    server_template = '//192.168.11.145/%s'
-    mount_template = Path('/var/openerp/11-145-%s')
-    for src, dst in folder_names.items():
-        server = server_template % src
-        mount = mount_template % src
-        command = ['mount', '-t cifs', '-o ro', server, mount]
-        if not mount.exists():
-            mount.mkdir()
-        result = Execute(command, password=password)
+def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc):
+    settings = get_settings()
+    # check that folder doesn't already exist
+    name = name.rstrip('/')
+    if name in settings.folders:
+        abort('folder <%s> already exists (use "show" for details)' % name)
+    # check that parent folders exist
+    parent = name.path
+    if parent and parent not in settings.folders:
+        abort('parent folder <%s> does not exist (use "tree" to see all folders/files)' % parent)
+    # check that specified users exist
+    non_users = []
+    for user in ro_users + rw_users + cd_users:
+        if user not in settings.users:
+            non_users.append(user)
+    if non_users:
+        abort('following users do not exist: %s (use "users" to see all users)' % ', '.join(non_users))
+    # ensure no tabs in description
+    desc = desc.replace('\t',' ')
+    # okay, let's do this!
+    # step 0: create folder in fnxfs directory structure
+    (FS_ROOT/name).mkdir()
+    # step 1: update fnxfs.folders
+    with open(FOLDERS, 'a') as folders:
+        folders.write('%s\n' % '\t'.join([name, styp, ptyp, ','.join(ro_users), ','.join(rw_users), ','.join(cd_users), desc]))
+    # step 2: update permissions file
+    write_permissions()
+
+
+@Command(
+        src=Spec('[ip_addr:]/path/to/filename', type=Path, abbrev=None),
+        dst=Spec('folder[/folder[/...]][/share_as_filename]', type=Path, abbrev=None),
+        styp=Spec('share type', OPTION, choices=['live', 'publish', 'auto-publish'], abbrev=None, default='live'),
+        ptyp=Spec('permission type', OPTION, choices=['custom', 'inherit'], abbrev=None, default='inherit'),
+        ro_users=Spec('users with read-only access', MULTI, abbrev=None),
+        rw_users=Spec('users with read-write access [only for "live" files]', MULTI, abbrev=None),
+        desc=Spec('short description of file', OPTION, abbrev=None, default=''),
+        freq=Spec('how often to republish file [only for "auto-publish" files]', OPTION, abbrev=None, default=''),
+        )
+def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq):
+    settings = get_settings()
+    # get names for source and destination
+    src_filename = src.filename
+    dst_filename = dst.filename or src_filename
+    dst = dst.path / dst_filename
+    # check that folder is specified and exists
+    if not dst.path:
+        help('no folder specified in DST')
+    elif dst.path not in settings.folders:
+        print(dst.path, settings.folders.keys(), verbose=0)
+        abort('folder <%s> does not exist (use "tree" to see all folders/files)' % dst.path)
+    # check that filename isn't already shared
+    if dst in settings.files:
+        abort('file <%s> already shared (use "show" for details)' % dst)
+    # check that read-write users only specified on 'live' share type
+    if rw_users and styp != 'live':
+        help('cannot specify rw_users with non-live share type')
+    # check that frequency only specified on 'auto-publish' share type
+    if freq and styp != 'auto-publish':
+        help('cannot specify freq with non-auto-publish share type')
+    # check that specified users exist
+    non_users = []
+    for user in ro_users + rw_users:
+        if user not in settings.users:
+            non_users.append(user)
+    if non_users:
+        abort('following users do not exist: %s (use "users" to see all users)' % ', '.join(non_users))
+    # ensure no tabs in description
+    desc = desc.replace('\t',' ')
+    # okay, let's do this!
+    # step 0: copy file into fnxfs directory structure
+    attempt = Execute(['scp', '-o', 'StrictHostKeyChecking=no', src, FS_ROOT/dst])
+    if attempt.stdout:
+        print(attempt.stdout.rstrip())
+    if attempt.stderr:
+        print(attempt.stderr.rstrip(), file=stderr)
+    if attempt.returncode or attempt.stderr:
+        raise SystemExit(attempt.returncode)
+    # step 1: update fnxfs.files
+    with open(FILES, 'a') as files:
+        files.write('%s\n' % '\t'.join([dst, styp, ptyp, ','.join(ro_users), ','.join(rw_users), desc, src, freq]))
+    # step 2: update permissions file
+    write_permissions()
+
 
 @Command(
         subcommand=(
@@ -227,9 +222,7 @@ def copy_usershares(folder):
         share=('mount point, ip address of shares, "ssh", "smb", or "all",', REQUIRED)
         )
 def shares(subcommand, share=''):
-    """
-    work with FnxFS mounts
-    """
+    "work with FnxFS mounts"
     # we support two different types of mounts: smb and sshfs
     # the smb (un)mount must be done with uid of root
     # the sshfs unmount must be done with uid of root
@@ -249,11 +242,11 @@ def shares(subcommand, share=''):
     print('target =', target_shares, verbose=2)
     if not target_shares:
         if share == 'all':
-            abort('no shares listed in %s' % fnxfs_mount)
+            abort('no shares listed in %s' % FNXFS_MOUNT)
         else:
             abort('share not found')
-    active = PropertyDict(default=dict)
-    inactive = PropertyDict(default=dict)
+    active = AttrDict(default=dict)
+    inactive = AttrDict(default=dict)
     shares = {}
     # get mounted shares known about in /proc/mounts
     with open('/proc/mounts') as proc:
@@ -295,13 +288,154 @@ def shares(subcommand, share=''):
                 elif mnt in active[typ]:
                     print('%s already started' % mnt)
 
+
+@Command(
+        name=Spec('name of file/folder/user to show', default=''),
+        all_users=Spec('list all users', FLAG),
+        )
+def show(name, all_users):
+    settings = get_settings()
+    if not (name or all_users):
+        help('nothing to do')
+    if all_users:
+        for user in settings.users:
+            attrs = settings.users[user]
+            print('%-25s %s' % (user, attrs.level), verbose=0)
+        return
+    res = settings.files.get(name)
+    if res is not None:
+        print('file:',
+                res.share_type, res.permissions_type, res.source, res.frequency,
+                res.read_users, res.write_users, res.description,
+                sep='\t', verbose=0)
+    res = settings.folders.get(name)
+    if res is not None:
+        print('folder:',
+                res.share_type, res.permissions_type,
+                res.read_users, res.write_users, res.create_delete_users,
+                res.description,
+                sep='\t', verbose=0)
+    res = settings.users.get(name)
+    if res is not None:
+        print('user:', res.level, sep='\t', verbose=0)
+
+
+@Command(
+        path=Spec('path to examine', REQUIRED, default=Path('/')),
+        include_files=Spec('display files', FLAG, 'f'),
+        )
+def tree(path, include_files, _prefix='', _files=defaultdict(list), _pool={}):
+    if not _pool:
+        print('entering tree()')
+    # transform settings
+    if not path.startswith('/'):
+        path = '/' + path
+    if not _pool:
+        settings = get_settings()
+    if include_files and not _files:
+        print('getting files')
+        for file in settings.files:
+            _files[file.path].append(file.filename)
+    if not _pool:
+        print('calculating pool')
+        _pool['/'] = ([], [])
+        for key in sorted(settings.folders):
+            f = _files.get(key, [])
+            if '/' not in key:
+                current = '/'
+                leaf = key
+            else:
+                current, leaf = key.rsplit('/', 1)
+                current = '/' + current
+            _pool[current][0].append(leaf)
+            _pool['/' + key] = ([], f)
+    if not _prefix:
+        print(path, sep='', verbose=0)
+    def walk(path='/'):
+        # emulate os.walk on _pool
+        current = path
+        dirs, files = _pool.get(path, ([], []))
+        yield current, dirs, files
+        for d in dirs:
+            for current, dirs, files in walk(d):
+                yield current, dirs, files
+    # now do the display
+    for current, dirs, files in walk(path):
+        if not current.startswith(path):
+            continue
+        last_dir = last_file = None
+        if files and not dirs:
+            last_file = files.pop()
+        if dirs:
+            last_dir = dirs.pop()
+        for file in files:
+            print(_prefix, '|-- ', file, sep='', verbose=0)
+        if last_file:
+            print(_prefix, '`-- ', last_file, sep='', verbose=0)
+        if (files or last_file) and dirs:
+            print(_prefix, '|', sep='', verbose=0)
+        for dir in dirs:
+            print(_prefix, '|-- ', dir, '/', sep='', verbose=0)
+            tree(current/dir, include_files, _prefix=_prefix+'|  ')
+        if last_dir:
+            print(_prefix, '`-- ', last_dir, '/', sep='', verbose=0)
+            tree(current+'/'+last_dir, include_files, _prefix=_prefix+'   ')
+        dirs[:] = []
+
+
+def archive_needed(src):
+    """
+    return True if the metadata on src differs from the latest archive version's
+    """
+    # use st_size, st_atime, st_mtime
+    archive = ARCHIVE_ROOT / (src - FS_ROOT)
+    try:
+        arc = sorted(archive.glob('/*'))[-1]
+    except IndexError:
+        return True
+    src_meta = src.stat()[6:9]
+    arc_meta = arc.stat()[6:9]
+    return src_meta != arc_meta
+
+def copy(src, dst, timeout):
+    archive_dst = ARCHIVE_ROOT / (dst - FS_ROOT)
+    if not archive_dst.exists():
+        archive_dst.makedirs() #owner=openerp_ids)
+    if not dst.exists():
+        dst.makedirs() #owner=openerp_ids)
+    with PidLockFile(archive_dst/'locked.pid', time_out=timeout):
+        src.copy(dst)
+        # dst.chown(*openerp_ids)
+        if archive_needed(dst):
+            archive_dst = next_archive_name(archive_dst)
+            src.copy(archive_dst)
+            # archive_dst.chown(*openerp_ids)
+
+def next_archive_name(archive_path):
+    """
+    archive_path is the folder holding the archive copies
+    if the source file is
+      /FS_ROOT/Production/Q_ALL.ods
+    then the archive path and file name will be
+      /ARCHIVE_ROOT/Production/Q_ALL.ods/[time_stamp]
+    if a file already exists with the current time stamp, sleep for one second and grab
+    the next one
+    """
+    while True:
+        time_stamp = DateTime.now().strftime('%Y-%m-%d_%H:%M:%S')
+        archive_name = archive_path/time_stamp
+        if archive_name.exists():
+            time.sleep(1)
+        else:
+            return archive_name
+
 def parse_mount_file(share):
     """
     return all matching entry for share
     """
     print('parse_mount_file:', verbose=2)
     shares = []
-    with open(fnxfs_mount) as data:
+    with open(FNXFS_MOUNT) as data:
         mounts = data.readlines()
     for line in mounts:
         line = line.strip()
@@ -315,7 +449,7 @@ def parse_mount_file(share):
             share == 'all' or
             options == 'ssh' and share == 'ssh' or
             options == 'smb' and share != 'ssh' or
-            fs_root/share == mount_point or
+            FS_ROOT/share == mount_point or
             share == source.split(':', 1)[0].strip('/')
             ):
                 if options == 'ssh':
@@ -323,6 +457,90 @@ def parse_mount_file(share):
                 else:
                     shares.append(('smb', (source, options, Path(mount_point))))
     return shares
+
+def get_settings():
+    print('entering get_settings()')
+    settings = AttrDict(files=AttrDict(), folders=AttrDict(), users=AttrDict())
+    with open(USERS) as users:
+        print('reading user file')
+        next(users)
+        for line in users:
+            try:
+                line = line.strip()
+                user, level = line.split('\t')
+                settings.users[user] = AttrDict(level=level)
+            except ValueError:
+                LOGGER.exception('unable to parse fnxfs.users: %r', line)
+    with open(FOLDERS) as folders:
+        print('reading folders file')
+        next(folders)
+        for line in folders:
+            try:
+                line = line.strip()
+                pieces = line.split('\t')
+                pieces += [''] * (7-len(pieces))
+                name, share, perm, read, write, create_delete, desc = pieces
+                if '/' not in name:
+                    # this is a root folder, do not allow 'inherit'
+                    perm = 'custom'
+                settings.folders[Path(name)] = AttrDict(
+                        share_type=share,
+                        permissions_type=perm,
+                        read_users=read and read.split(',') or [],
+                        write_users=write and write.split(',') or [],
+                        create_delete_users=create_delete and create_delete.split(',') or [],
+                        description=desc,
+                        )
+            except ValueError:
+                LOGGER.exception('unable to parse fnxfs.folders: %r', line)
+    print('inheriting permissions')
+    for name in sorted(settings.folders.keys()):
+        print('checking %s' % name, verbose=2)
+        # XXX: possible optimization -- only check previous folder as it should have been set
+        #      by the previous iteration
+        vals = perms = settings.folders[name]
+        while perms.permissions_type == 'inherit':
+            perms = settings.folders[name.path]
+        if vals is not perms:
+            vals.read_users = perms.read_users
+            vals.write_users = perms.write_users
+            vals.create_delete_users = perms.create_delete_users
+    with open(FILES) as files:
+        print('reading files file')
+        next(files)
+        for line in files:
+            try:
+                line = line.strip()
+                pieces = line.split('\t')
+                pieces += [''] * (8-len(pieces))
+                name, share, perm, read, write, desc, source, freq = pieces
+                settings.files[Path(name)] = AttrDict(
+                        share_type=share,
+                        permissions_type=perm,
+                        read_users=read and read.split(',') or [],
+                        write_users=write and write.split(',') or [],
+                        description=desc,
+                        source=source,
+                        frequency=freq,
+                        )
+            except ValueError:
+                LOGGER.exception('unable to parse fnxfs.files: %r', line)
+    print('inheriting permissions')
+    for name in sorted(settings.files.keys()):
+        print('checking %s' % name, verbose=2)
+        # XXX: possible optimization -- only check containing folder as it should have been
+        #      set by the previous loop
+        vals = perms = settings.files[name]
+        folder = name.path
+        print(repr(perms), verbose=3)
+        while perms.permissions_type == 'inherit':
+            perms = settings.folders[folder]
+            folder = folder.path
+        if vals is not perms:
+            vals.read_users = perms.read_users
+            vals.write_users = perms.write_users + perms.create_delete_users
+    print('returning from get_settings()')
+    return settings
 
 def start_smb(source, options, mount):
     """
@@ -335,7 +553,7 @@ def start_smb(source, options, mount):
     with open('/var/log/fnxfs_debug', 'a+') as debug:
         debug.write(command + '\n')
     # return commands.getoutput(command)
-    output = Execute(command, password=server_root, pty=True)
+    output = Execute(command, password=config.server_root, pty=True)
     result = ''
     if output.stdout or output.returncode:
         print(output.stdout) #, verbose=0)
@@ -348,8 +566,8 @@ def start_sshfs(source, mount):
     start an sshfs session to make a share available
     """
     source = 'root@%s' % source
-    cmd = Popen(['/usr/bin/sshfs'] + sshfs_options + [source, mount], stdin=PIPE, stdout=PIPE, stderr=STDOUT)
-    cmd.stdin.write(server_root + '\r\n')
+    cmd = Popen(['/usr/bin/sshfs'] + SSHFS_OPTIONS + [source, mount], stdin=PIPE, stdout=PIPE, stderr=STDOUT)
+    cmd.stdin.write(config.server_root + '\r\n')
     output = cmd.stdout.read()
     return output
 
@@ -373,49 +591,51 @@ def stop_sshfs(mount):
         result += output.stdout
     return result
 
+def write_permissions():
+    settings = get_settings()
+    with open(PERMISSIONS, 'w') as perm:
+        perm.write('%s\n' % ','.join(settings.users.keys()))
+        for name in sorted(settings.folders.keys()):
+            vals = settings.folders[name]
+            perm.write('all:none:/%s/*\n' % name)
+            seen = set()
+            for user in vals.create_delete_users:
+                seen.add(user)
+                perm.write('%s:create:/%s/*\n' % (user, name))
+            for user in vals.write_users:
+                if user in seen:
+                    continue
+                seen.add(user)
+                perm.write('%s:write:/%s/*\n' % (user, name))
+            for user in vals.read_users:
+                if user in seen:
+                    continue
+                seen.add(user)
+                perm.write('%s:read:/%s/*\n' % (user, name))
+
+
+
 # try umount for ssh
 stop_sshfs = stop_smb
 
-def next_archive_name(archive_path):
-    """
-    archive_path is the folder holding the archive copies
+FS_ROOT = Path('/var/openerp/fnxfs')
+ARCHIVE_ROOT = Path('/var/openerp/fnxfs_archive')
+FNXFS_MOUNT = Path('/var/openerp/fnxfs.mount')
+USERS = Path('/var/openerp/fnxfs.users')
+FILES = Path('/var/openerp/fnxfs.files')
+FOLDERS = Path('/var/openerp/fnxfs.folders')
+PERMISSIONS = Path('/var/openerp/fnxfs.permissions')
 
-    if the source file is
+SSHFS_OPTIONS = [
+        '-o','allow_other',
+        '-o','StrictHostKeyChecking=no',
+        '-o','password_stdin',
+        '-o','reconnect',
+        '-o','compression=no',
+        '-o','cache_timeout=0',
+        '-o','ServerAliveInterval=5',
+        '-o','workaround=rename',
+        ]
 
-      /fs_root/Production/Q_ALL.ods
-
-    then the archive path and file name will be
-
-      /archive_root/Production/Q_ALL.ods/[time_stamp]
-
-    if a file already exists with the current time stamp, sleep for one second and grab
-    the next one
-    """
-    while True:
-        time_stamp = DateTime.now().strftime('%Y-%m-%d_%H:%M:%S')
-        archive_name = archive_path/time_stamp
-        if archive_name.exists():
-            time.sleep(1)
-        else:
-            return archive_name
-
-def archive_needed(src):
-    """
-    return True if the metadata on src differs from the latest archive version's
-    """
-    # use st_size, st_atime, st_mtime
-    archive = archive_root / (src - fs_root)
-    try:
-        arc = sorted(archive.glob('/*'))[-1]
-    except IndexError:
-        return True
-    src_meta = src.stat()[6:9]
-    arc_meta = arc.stat()[6:9]
-    return src_meta != arc_meta
-
-def connect_oe(hostname, database, user, password):
-    OE.conn = conn = openerplib.get_connection(hostname=hostname, database=database, login=user, password=password)
-    OE.fs_file = conn.get_model('fnx.fs.file')
-    OE.fs_folder = conn.get_model('fnx.fs.folder')
 
 Main()

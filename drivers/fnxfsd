@@ -83,6 +83,7 @@ REMOTE_ROOT = Path('/var/openerp/fnxfs/')
 TCP_PORT = 8068
 
 DATA_LOCK = RLock()
+COMM_LOCK = RLock()
 CONTEXT = threading.local()  # used for thread-local storage
 AS_ROOT = False
 AS_USER = getpwuid(os.getuid()).pw_name
@@ -851,6 +852,7 @@ class FnxFS(object):
         CONTEXT.pid = pid
         CONTEXT.user = user = getpwuid(uid).pw_name
         LOGGER.debug('=== CONTEXT: %r', CONTEXT)
+        lock = None
         try:
             path = Path(path)
             if len(path) > 1024:
@@ -859,10 +861,12 @@ class FnxFS(object):
             if op not in ('init','destroy','statfs'):
                 elements = path.elements
                 if elements[2:3] == ['FnxFS']:
+                    lock = COMM_LOCK
+                    lock.acquire()
                     # check for valid connection
                     LOGGER.debug('grabbing DATA_LOCK')
                     with DATA_LOCK:
-                        LOGGER.debug('lock obtained')
+                        LOGGER.debug('data lock obtained')
                         if self._sftp is None:
                             if not self._connect():
                                 raise OSError(ENOLINK, 'remote link down')
@@ -909,6 +913,8 @@ class FnxFS(object):
             LOGGER.exception('error occured')
             raise
         finally:
+            if lock is not None:
+                lock.release()
             LOGGER.info('<-- %s %s', op, repr(ret)[:200])
             LOGGER.info('')
 

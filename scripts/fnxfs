@@ -34,6 +34,7 @@ FH = logging.FileHandler(
 FH.setLevel(logging.WARNING)
 FH.setFormatter(logging.Formatter("%(asctime)-30s %(name)-40s %(message)s"))
 LOGGER.addHandler(FH)
+CLIENT_IP = None  # set if run from an ssh connection
 
 config = OrmFile('/etc/openerp/fnxfs_credentials')
 
@@ -41,6 +42,11 @@ config = OrmFile('/etc/openerp/fnxfs_credentials')
 @Script()
 def main():
     print('entering main()')
+    global CLIENT_IP
+    client_ip = os.environ.get('SSH_CONNECTION')
+    if client_ip is not None:
+        CLIENT_IP = client_ip.split()[0]
+        print('CLIENT_IP: %s' % CLIENT_IP)
     with FNXFS_LOCK:
         print('calling %s' % script_command_name)
         script_command()
@@ -118,44 +124,6 @@ def cp(
 
 
 @Command(
-        name=Spec('name of new folder', type=Path, abbrev=None),
-        styp=Spec('share type', OPTION, choices=['mirror', 'share', 'virtual'], abbrev=None, default='virtual'),
-        ptyp=Spec('permission type', OPTION, choices=['custom', 'inherit'], abbrev=None, default='inherit'),
-        ro_users=Spec('users with read-only access', MULTI, abbrev=None),
-        rw_users=Spec('users with read-write access [only for "virtual" folders', MULTI, abbrev=None),
-        cd_users=Spec('users with create/delete access [only for "virtual" folders]', MULTI, abbrev=None),
-        desc=Spec('short description of folder', OPTION, abbrev=None, default=''),
-        )
-def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc):
-    settings = get_settings()
-    # check that folder doesn't already exist
-    name = name.rstrip('/')
-    if name in settings.folders:
-        abort('folder <%s> already exists (use "show" for details)' % name)
-    # check that parent folders exist
-    parent = name.path
-    if parent and parent not in settings.folders:
-        abort('parent folder <%s> does not exist (use "tree" to see all folders/files)' % parent)
-    # check that specified users exist
-    non_users = []
-    for user in ro_users + rw_users + cd_users:
-        if user not in settings.users:
-            non_users.append(user)
-    if non_users:
-        abort('following users do not exist: %s (use "users" to see all users)' % ', '.join(non_users))
-    # ensure no tabs in description
-    desc = desc.replace('\t',' ')
-    # okay, let's do this!
-    # step 0: create folder in fnxfs directory structure
-    (FS_ROOT/name).mkdir()
-    # step 1: update fnxfs.folders
-    with open(FOLDERS, 'a') as folders:
-        folders.write('%s\n' % '\t'.join([name, styp, ptyp, ','.join(ro_users), ','.join(rw_users), ','.join(cd_users), desc]))
-    # step 2: update permissions file
-    write_permissions()
-
-
-@Command(
         src=Spec('[ip_addr:]/path/to/filename', type=Path, abbrev=None),
         dst=Spec('folder[/folder[/...]][/share_as_filename]', type=Path, abbrev=None),
         styp=Spec('share type', OPTION, choices=['live', 'publish', 'auto-publish'], abbrev=None, default='live'),
@@ -171,6 +139,9 @@ def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq):
     src_filename = src.filename
     dst_filename = dst.filename or src_filename
     dst = dst.path / dst_filename
+    # add in CLIENT_IP if available
+    if CLIENT_IP:
+        src = CLIENT_IP + ':' + src
     # check that folder is specified and exists
     if not dst.path:
         help('no folder specified in DST')
@@ -207,6 +178,44 @@ def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq):
     # step 1: update fnxfs.files
     with open(FILES, 'a') as files:
         files.write('%s\n' % '\t'.join([dst, styp, ptyp, ','.join(ro_users), ','.join(rw_users), desc, src, freq]))
+    # step 2: update permissions file
+    write_permissions()
+
+
+@Command(
+        name=Spec('name of new folder', type=Path, abbrev=None),
+        styp=Spec('share type', OPTION, choices=['mirror', 'share', 'virtual'], abbrev=None, default='virtual'),
+        ptyp=Spec('permission type', OPTION, choices=['custom', 'inherit'], abbrev=None, default='inherit'),
+        ro_users=Spec('users with read-only access', MULTI, abbrev=None),
+        rw_users=Spec('users with read-write access [only for "virtual" folders', MULTI, abbrev=None),
+        cd_users=Spec('users with create/delete access [only for "virtual" folders]', MULTI, abbrev=None),
+        desc=Spec('short description of folder', OPTION, abbrev=None, default=''),
+        )
+def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc):
+    settings = get_settings()
+    # check that folder doesn't already exist
+    name = name.rstrip('/')
+    if name in settings.folders:
+        abort('folder <%s> already exists (use "show" for details)' % name)
+    # check that parent folders exist
+    parent = name.path
+    if parent and parent not in settings.folders:
+        abort('parent folder <%s> does not exist (use "tree" to see all folders/files)' % parent)
+    # check that specified users exist
+    non_users = []
+    for user in ro_users + rw_users + cd_users:
+        if user not in settings.users:
+            non_users.append(user)
+    if non_users:
+        abort('following users do not exist: %s (use "users" to see all users)' % ', '.join(non_users))
+    # ensure no tabs in description
+    desc = desc.replace('\t',' ')
+    # okay, let's do this!
+    # step 0: create folder in fnxfs directory structure
+    (FS_ROOT/name).mkdir()
+    # step 1: update fnxfs.folders
+    with open(FOLDERS, 'a') as folders:
+        folders.write('%s\n' % '\t'.join([name, styp, ptyp, ','.join(ro_users), ','.join(rw_users), ','.join(cd_users), desc]))
     # step 2: update permissions file
     write_permissions()
 

@@ -165,7 +165,7 @@ def change_file():
         rw_users=Spec('users with read-write access [only for "live" files]', MULTI, abbrev=None),
         desc=Spec('short description of file', OPTION, abbrev=None, default=''),
         freq=Spec('how often to republish file [only for "auto-publish" files]', OPTION, abbrev=None, default=''),
-        user=Spec('run this command as USER', OPTION, abbrev=None, default=AS_USER)),
+        user=Spec('run this command as USER', OPTION, abbrev=None, default=AS_USER),
         config=Spec('location of configuration file', OPTION, abbrev=None, default=Path('/usr/local/etc/fnxfs_credentials')),
         )
 def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user, config):
@@ -422,7 +422,7 @@ def fnxfsd(
         ARCHIVE_OKAY = True
     LOGGER.info('~~~ config file: %s', config)
     read_write = True
-    threads = True
+    threads = False
     for opt in option:
         if opt == 'rw':
             read_write = True
@@ -860,7 +860,9 @@ class FnxFS(object):
                 elements = path.elements
                 if elements[2:3] == ['FnxFS']:
                     # check for valid connection
+                    LOGGER.debug('grabbing DATA_LOCK')
                     with DATA_LOCK:
+                        LOGGER.debug('lock obtained')
                         if self._sftp is None:
                             if not self._connect():
                                 raise OSError(ENOLINK, 'remote link down')

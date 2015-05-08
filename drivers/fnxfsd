@@ -88,6 +88,7 @@ CONTEXT = threading.local()  # used for thread-local storage
 AS_ROOT = False
 AS_USER = getpwuid(os.getuid()).pw_name
 if AS_USER == 'root':
+    AS_ROOT = True
     AS_USER = None
 
 os.environ['PATH'] = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
@@ -103,7 +104,6 @@ else:
 def main():
     syslog.syslog(' '.join([repr(a) for a in sys.argv]))
     if os.getuid() == 0:
-        module.AS_ROOT = True
         print('running as root')
         syslog.syslog('running as root')
     else:
@@ -177,16 +177,58 @@ def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user, conf
         abort('USER must be specified when running as root')
     if not src.startswith(('/home/%s/' % AS_USER, '/home/.shadow/%s/' % AS_USER, '/home/.fnxfs_shadow/%s/' % AS_USER)):
         abort("can only share files from USER's home directory")
-    params = [src, dst, '--styp=%s' % styp, '--ptyp=%s' % ptyp]
+    params = ['client:'+src, dst, '--styp=%s' % styp, '--ptyp=%s' % ptyp]
     if ro_users:
         params.append('--ro-users=%s' % ','.join(ro_users))
     if rw_users:
         params.append('--rw-users=%s' % ','.join(rw_users))
+    if user not in ro_users + rw_users:
+        rw_users.append(user)
     if desc:
         params.append('--desc="%s"' % desc.replace('"', '\\"'))
     if freq:
         params.append('--freq="%s"' % freq)
-    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs'] + params)
+    if script_verbose:
+        params.append('-' + 'v'*script_verbose)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'create-file'] + params)
+    if attempt.stdout:
+        print(attempt.stdout)
+    if attempt.stderr:
+        print(attempt.stderr, file=stderr)
+    if attempt.returncode or attempt.stderr:
+        raise SystemExit(attempt.returncode or 1)
+
+
+@Command(
+        name=Spec('name of new folder', type=Path, abbrev=None),
+        styp=Spec('share type', OPTION, choices=['mirror', 'share', 'virtual'], abbrev=None, default='virtual'),
+        ptyp=Spec('permission type', OPTION, choices=['custom', 'inherit'], abbrev=None, default='inherit'),
+        ro_users=Spec('users with read-only access', MULTI, abbrev=None),
+        rw_users=Spec('users with read-write access [only for "virtual" folders', MULTI, abbrev=None),
+        cd_users=Spec('users with create/delete access [only for "virtual" folders]', MULTI, abbrev=None),
+        desc=Spec('short description of folder', OPTION, abbrev=None, default=''),
+        user=Spec('run this command as USER', OPTION, abbrev=None, default=AS_USER),
+        config=Spec('location of configuration file', OPTION, abbrev=None, default=Path('/usr/local/etc/fnxfs_credentials')),
+        )
+def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc):
+    "create a new folder, specifying share and permission types, user access, and description"
+    execfile(config, globals())
+    if user != AS_USER and not AS_ROOT:
+        abort('must be root to specify a different USER')
+    params = [name, '--styp=%s' % styp, '--ptyp=%s' % ptyp]
+    if ro_users:
+        params.append('--ro-users=%s' % ','.join(ro_users))
+    if rw_users:
+        params.append('--rw-users=%s' % ','.join(rw_users))
+    if cd_users:
+        params.append('--cd-users=%s' % ','.join(cd_users))
+    if user not in ro_users + rw_users + cd_users:
+        cd_users.append(user)
+    if desc:
+        params.append('--desc="%s"' % desc.replace('"', '\\"'))
+    if script_verbose:
+        params.append('-' + 'v'*script_verbose)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'create-folder'] + params)
     if attempt.stdout:
         print(attempt.stdout)
     if attempt.stderr:
@@ -196,23 +238,40 @@ def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user, conf
 
 
 @Command()
-def delete_file():
-    pass
-
-
-@Command()
 def change_folder():
     pass
 
 
-@Command()
-def create_folder():
-    pass
+@Command(
+        name=('path/name of file to remove', ),
+        )
+def delete_file(name, user):
+    params = [name]
+    if AS_USER is not None:
+        params.append('--user=%s' % AS_USER)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'delete-file'] + params)
+    if attempt.stdout:
+        print(attempt.stdout)
+    if attempt.stderr:
+        print(attempt.stderr, file=stderr)
+    if attempt.returncode or attempt.stderr:
+        raise SystemExit(attempt.returncode or 1)
 
 
-@Command()
-def delete_folder():
-    pass
+@Command(
+        name=('path/name of file to remove', ),
+        )
+def delete_file(name, user):
+    params = [name]
+    if AS_USER is not None:
+        params.append('--user=%s' % AS_USER)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'delete-folder'] + params)
+    if attempt.stdout:
+        print(attempt.stdout)
+    if attempt.stderr:
+        print(attempt.stderr, file=stderr)
+    if attempt.returncode or attempt.stderr:
+        raise SystemExit(attempt.returncode or 1)
 
 
 #----------------

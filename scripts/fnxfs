@@ -8,6 +8,7 @@ from pandaemonium import Daemon, PidLockFile, FileTracker, STDOUT, STDERR
 from antipathy import Path
 from openerplib import AttrDict
 from pandaemonium import PidLockFile
+from pwd import getpwuid
 from scription import *
 from subprocess import Popen, PIPE, STDOUT
 import commands
@@ -36,6 +37,11 @@ FH.setFormatter(logging.Formatter("%(asctime)-30s %(name)-40s %(message)s"))
 LOGGER.addHandler(FH)
 CLIENT_IP = None  # set if run from an ssh connection
 SETTINGS = None
+AS_ROOT = False
+AS_USER = getpwuid(os.getuid()).pw_name
+if AS_USER == 'root':
+    AS_ROOT = True
+    AS_USER = None
 
 config = OrmFile('/etc/openerp/fnxfs_credentials')
 
@@ -135,8 +141,9 @@ def cp(
         rw_users=Spec('users with read-write access [only for "live" files]', MULTI, abbrev=None),
         desc=Spec('short description of file', OPTION, abbrev=None, default=''),
         freq=Spec('how often to republish file [only for "auto-publish" files]', OPTION, abbrev=None, default=''),
+        user=('user to run command as', OPTION),
         )
-def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq):
+def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user):
     "create new shared file, specifying share and permission types, user access, description, etc."
     # get names for source and destination
     src_filename = src.filename
@@ -169,6 +176,16 @@ def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq):
         abort('following users do not exist: %s (use "users" to see all users)' % ', '.join(non_users))
     # ensure no tabs in description
     desc = desc.replace('\t',' ')
+    # check that user has privilege
+    if user and not AS_ROOT:
+        abort('must be root to specify a different user')
+    user = user or AS_USER
+    if user is not None:
+        if dst.path == '/':
+            if SETTINGS.users[user].level not in ('creator', 'manager'):
+                abort('permission denied')
+        elif user not in SETTINGS.folders[dst.path].cd_users:
+            abort('permission denied')
     # okay, let's do this!
     # step 0: copy file into fnxfs directory structure
     attempt = Execute(['scp', '-o', 'StrictHostKeyChecking=no', src, FS_ROOT/dst])
@@ -201,8 +218,9 @@ def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq):
         rw_users=Spec('users with read-write access [only for "virtual" folders', MULTI, abbrev=None),
         cd_users=Spec('users with create/delete access [only for "virtual" folders]', MULTI, abbrev=None),
         desc=Spec('short description of folder', OPTION, abbrev=None, default=''),
+        user=('user to run command as', OPTION),
         )
-def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc):
+def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc, user):
     "create a new folder, specifying share and permission types, user access, and description"
     # check that folder doesn't already exist
     name = name.rstrip('/')
@@ -224,6 +242,16 @@ def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc):
     # if primary directory, permission type is 'custom'
     if '/' not in name:
         ptyp = 'custom'
+    # check that user has privilege
+    if user and not AS_ROOT:
+        abort('must be root to specify a different user')
+    user = user or AS_USER
+    if user is not None:
+        if '/' not in name:
+            if SETTINGS.users[user].level not in ('creator', 'manager'):
+                abort('permission denied')
+        elif user not in SETTINGS.folders[name.path].cd_users:
+            abort('permission denied')
     # okay, let's do this!
     # step 0: create folder in fnxfs directory structure
     dst = FS_ROOT/name
@@ -249,6 +277,8 @@ def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc):
         )
 def create_user(login, level):
     "create a new user, and assign privilege level"
+    if not AS_ROOT:
+        abort('must be root')
     # TODO: allow specification of permissions for folders and files
     if login in SETTINGS.users:
         abort('user <%s> already exists (use "show" for details)' % login)
@@ -259,10 +289,19 @@ def create_user(login, level):
 
 @Command(
         name=('path/name of file to remove', ),
+        user=('user to run command as', OPTION),
         )
-def delete_file(name):
+def delete_file(name, user):
     if name not in SETTINGS.files:
         abort('file <%s> not in FnxFS (use "tree" to see folders/files' % name)
+    if user and not AS_ROOT:
+        abort('must be root to specify a different user')
+    user = user or AS_USER
+    if user is not None:
+        if user not in SETTINGS.files[name].rw_users:
+            abort('permission denied')
+        elif user not in SETTINGS.folders[name.path].cd_users:
+            abort('permission denied')
     del SETTINGS.files[name]
     write_files()
     write_permissions()
@@ -270,12 +309,22 @@ def delete_file(name):
 
 @Command(
         folder=Spec('path/folder to remove', type=Path),
+        user=('user to run command as', OPTION),
         )
-def delete_folder(folder):
+def delete_folder(folder, user):
     f_plain = folder.rstrip('/')
     f_slash = f_plain / ''
     if f_plain not in SETTINGS.folders:
         abort('folder <%s> not in FnxFS' % f_plain)
+    if user and not AS_ROOT:
+        abort('must be root to specify a different user')
+    user = user or AS_USER
+    if user is not None:
+        if '/' not in f_plain:
+            if SETTINGS.users[user].level not in ('creator', ):
+                abort('permission denied')
+        if user not in SETTINGS.folders[f_plain].cd_users:
+            abort('permission denied')
     # if folder is a mirror or share, we can just remove it
     rec = SETTINGS.folders[f_plain]
     # mirror and share type folders can simply be deleted
@@ -297,6 +346,9 @@ def delete_folder(folder):
         login=('user to delete', ),
         )
 def delete_user(login):
+    "remove a user from FnxFS"
+    if not AS_ROOT:
+        abort('must be root')
     if login not in SETTINGS.users:
         abort('user <%s> does not exist in FnxFS' % login)
     del SETTINGS.user[login]

@@ -221,6 +221,9 @@ def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc):
         abort('following users do not exist: %s (use "users" to see all users)' % ', '.join(non_users))
     # ensure no tabs in description
     desc = desc.replace('\t',' ')
+    # if primary directory, permission type is 'custom'
+    if '/' not in name:
+        ptyp = 'custom'
     # okay, let's do this!
     # step 0: create folder in fnxfs directory structure
     dst = FS_ROOT/name

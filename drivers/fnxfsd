@@ -166,29 +166,30 @@ def change_file():
         rw_users=Spec('users with read-write access [only for "live" files]', MULTI, abbrev=None),
         desc=Spec('short description of file', OPTION, abbrev=None, default=''),
         freq=Spec('how often to republish file [only for "auto-publish" files]', OPTION, abbrev=None, default=''),
-        user=Spec('run this command as USER', OPTION, abbrev=None, default=AS_USER),
-        config=Spec('location of configuration file', OPTION, abbrev=None, default=Path('/usr/local/etc/fnxfs_credentials')),
+        user=('user to run command as', OPTION),
         )
-def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user, config):
+def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user):
     "create a virtual file"
     execfile(config, globals())
     if user != AS_USER and not AS_ROOT:
         abort('must be root to specify a different USER')
-    elif user is None:
-        abort('USER must be specified when running as root')
-    if not src.startswith(('/home/%s/' % AS_USER, '/home/.shadow/%s/' % AS_USER, '/home/.fnxfs_shadow/%s/' % AS_USER)):
-        abort("can only share files from USER's home directory")
+    user = user or AS_USER
+    if user is not None:
+        if not src.startswith(('/home/%s/' % AS_USER, '/home/.shadow/%s/' % AS_USER, '/home/.fnxfs_shadow/%s/' % AS_USER)):
+            abort("can only share files from USER's home directory")
     params = ['client:'+src, dst, '--styp=%s' % styp, '--ptyp=%s' % ptyp]
     if ro_users:
         params.append('--ro-users=%s' % ','.join(ro_users))
     if rw_users:
         params.append('--rw-users=%s' % ','.join(rw_users))
-    if user not in ro_users + rw_users:
+    if user and user not in ro_users + rw_users:
         rw_users.append(user)
     if desc:
         params.append('--desc="%s"' % desc.replace('"', '\\"'))
     if freq:
         params.append('--freq="%s"' % freq)
+    if user:
+        params.append('--user=%s' % user)
     if script_verbose:
         params.append('-' + 'v'*script_verbose)
     attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'create-file'] + params)
@@ -208,14 +209,14 @@ def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user, conf
         rw_users=Spec('users with read-write access [only for "virtual" folders', MULTI, abbrev=None),
         cd_users=Spec('users with create/delete access [only for "virtual" folders]', MULTI, abbrev=None),
         desc=Spec('short description of folder', OPTION, abbrev=None, default=''),
-        user=Spec('run this command as USER', OPTION, abbrev=None, default=AS_USER),
-        config=Spec('location of configuration file', OPTION, abbrev=None, default=Path('/usr/local/etc/fnxfs_credentials')),
+        user=('user to run command as', OPTION),
         )
 def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc):
     "create a new folder, specifying share and permission types, user access, and description"
     execfile(config, globals())
     if user != AS_USER and not AS_ROOT:
         abort('must be root to specify a different USER')
+    user = user or AS_USER
     params = [name, '--styp=%s' % styp, '--ptyp=%s' % ptyp]
     if ro_users:
         params.append('--ro-users=%s' % ','.join(ro_users))
@@ -223,10 +224,12 @@ def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc):
         params.append('--rw-users=%s' % ','.join(rw_users))
     if cd_users:
         params.append('--cd-users=%s' % ','.join(cd_users))
-    if user not in ro_users + rw_users + cd_users:
+    if user and user not in ro_users + rw_users + cd_users:
         cd_users.append(user)
     if desc:
         params.append('--desc="%s"' % desc.replace('"', '\\"'))
+    if user:
+        params.append('--user=%s' % user)
     if script_verbose:
         params.append('-' + 'v'*script_verbose)
     attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'create-folder'] + params)
@@ -246,7 +249,7 @@ def change_folder():
 @Command(
         name=('path/name of file to remove', ),
         )
-def delete_file(name, user):
+def delete_file(name):
     "remove a folder from FnxFS"
     params = [name]
     if AS_USER is not None:
@@ -265,7 +268,7 @@ def delete_file(name, user):
 @Command(
         name=('path/name of file to remove', ),
         )
-def delete_file(name, user):
+def delete_file(name):
     "remove a file from FnxFS"
     params = [name]
     if AS_USER is not None:
@@ -305,7 +308,7 @@ def show(name, all_users):
         path=Spec('path to examine', REQUIRED, default=Path('/')),
         include_files=Spec('display files', FLAG, 'f'),
         )
-def tree(path, include_files, _prefix='', _files=defaultdict(list), _pool={}):
+def tree(path, include_files):
     "display a tree of the folder/file structure in FnxFS"
     params = [path]
     if include_files:

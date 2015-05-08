@@ -147,17 +147,17 @@ def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user):
     "create new shared file, specifying share and permission types, user access, description, etc."
     # get names for source and destination
     src_filename = src.filename
-    dst_filename = dst.filename or src_filename
-    dst = dst.path / dst_filename
     # add in CLIENT_IP if available and requested
     if CLIENT_IP and src.startswith('client:'):
         src = CLIENT_IP + src[6:]
     # check that folder is specified and exists
-    if not dst.path:
-        help('no folder specified in DST')
-    elif dst.path not in SETTINGS.folders:
-        print(dst.path, SETTINGS.folders.keys(), verbose=0)
-        abort('folder <%s> does not exist (use "tree" to see all folders/files)' % dst.path)
+    # - first check if entire dst is a folder
+    if dst not in SETTINGS.folders:
+        if dst.path not in SETTINGS.folders:
+            abort('folder <%s> does not exist (use "tree" to see all folders/files)' % dst.path)
+    else:
+        # dst was a path, so add the filename
+        dst /= src_filename
     # check that filename isn't already shared
     if dst in SETTINGS.files:
         abort('file <%s> already shared (use "show" for details)' % dst)
@@ -184,7 +184,7 @@ def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user):
         if dst.path == '/':
             if SETTINGS.users[user].level not in ('creator', 'manager'):
                 abort('permission denied')
-        elif user not in SETTINGS.folders[dst.path].cd_users:
+        elif user not in SETTINGS.folders[dst.path].create_delete_users:
             abort('permission denied')
     # okay, let's do this!
     # step 0: copy file into fnxfs directory structure
@@ -250,7 +250,7 @@ def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc, user):
         if '/' not in name:
             if SETTINGS.users[user].level not in ('creator', 'manager'):
                 abort('permission denied')
-        elif user not in SETTINGS.folders[name.path].cd_users:
+        elif user not in SETTINGS.folders[name.path].create_delete_users:
             abort('permission denied')
     # okay, let's do this!
     # step 0: create folder in fnxfs directory structure
@@ -301,7 +301,7 @@ def delete_file(name, user):
     if user is not None:
         if user not in SETTINGS.files[name].rw_users:
             abort('permission denied')
-        elif user not in SETTINGS.folders[name.path].cd_users:
+        elif user not in SETTINGS.folders[name.path].create_delete_users:
             abort('permission denied')
     del SETTINGS.files[name]
     write_files()
@@ -325,7 +325,7 @@ def delete_folder(folder, user):
         if '/' not in f_plain:
             if SETTINGS.users[user].level not in ('creator', ):
                 abort('permission denied')
-        if user not in SETTINGS.folders[f_plain].cd_users:
+        if user not in SETTINGS.folders[f_plain].create_delete_users:
             abort('permission denied')
     # if folder is a mirror or share, we can just remove it
     rec = SETTINGS.folders[f_plain]

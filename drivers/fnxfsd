@@ -170,6 +170,7 @@ def change_file():
         config=Spec('location of configuration file', OPTION, abbrev=None, default=Path('/usr/local/etc/fnxfs_credentials')),
         )
 def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user, config):
+    "create a virtual file"
     execfile(config, globals())
     if user != AS_USER and not AS_ROOT:
         abort('must be root to specify a different USER')
@@ -192,7 +193,7 @@ def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user, conf
         params.append('-' + 'v'*script_verbose)
     attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'create-file'] + params)
     if attempt.stdout:
-        print(attempt.stdout)
+        print(attempt.stdout, verbose=0)
     if attempt.stderr:
         print(attempt.stderr, file=stderr)
     if attempt.returncode or attempt.stderr:
@@ -230,7 +231,7 @@ def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc):
         params.append('-' + 'v'*script_verbose)
     attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'create-folder'] + params)
     if attempt.stdout:
-        print(attempt.stdout)
+        print(attempt.stdout, verbose=0)
     if attempt.stderr:
         print(attempt.stderr, file=stderr)
     if attempt.returncode or attempt.stderr:
@@ -246,12 +247,15 @@ def change_folder():
         name=('path/name of file to remove', ),
         )
 def delete_file(name, user):
+    "remove a folder from FnxFS"
     params = [name]
     if AS_USER is not None:
         params.append('--user=%s' % AS_USER)
+    if script_verbose:
+        params.append('-' + 'v'*script_verbose)
     attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'delete-file'] + params)
     if attempt.stdout:
-        print(attempt.stdout)
+        print(attempt.stdout, verbose=0)
     if attempt.stderr:
         print(attempt.stderr, file=stderr)
     if attempt.returncode or attempt.stderr:
@@ -262,12 +266,55 @@ def delete_file(name, user):
         name=('path/name of file to remove', ),
         )
 def delete_file(name, user):
+    "remove a file from FnxFS"
     params = [name]
     if AS_USER is not None:
         params.append('--user=%s' % AS_USER)
+    if script_verbose:
+        params.append('-' + 'v'*script_verbose)
     attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'delete-folder'] + params)
     if attempt.stdout:
-        print(attempt.stdout)
+        print(attempt.stdout, verbose=0)
+    if attempt.stderr:
+        print(attempt.stderr, file=stderr)
+    if attempt.returncode or attempt.stderr:
+        raise SystemExit(attempt.returncode or 1)
+
+
+@Command(
+        name=Spec('name of file/folder/user to show', default=''),
+        all_users=Spec('list all users', FLAG),
+        )
+def show(name, all_users):
+    "display information about a user/file/folder"
+    params = [name]
+    if all_users:
+        params.append('--all-users')
+    if script_verbose:
+        params.append('-' + 'v'*script_verbose)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'show'] + params)
+    if attempt.stdout:
+        print(attempt.stdout, verbose=0)
+    if attempt.stderr:
+        print(attempt.stderr, file=stderr)
+    if attempt.returncode or attempt.stderr:
+        raise SystemExit(attempt.returncode or 1)
+
+
+@Command(
+        path=Spec('path to examine', REQUIRED, default=Path('/')),
+        include_files=Spec('display files', FLAG, 'f'),
+        )
+def tree(path, include_files, _prefix='', _files=defaultdict(list), _pool={}):
+    "display a tree of the folder/file structure in FnxFS"
+    params = [path]
+    if include_files:
+        params.append('--include-files')
+    if script_verbose:
+        params.append('-' + 'v'*script_verbose)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'show'] + params)
+    if attempt.stdout:
+        print(attempt.stdout, verbose=0)
     if attempt.stderr:
         print(attempt.stderr, file=stderr)
     if attempt.returncode or attempt.stderr:

@@ -292,6 +292,7 @@ def create_user(login, level):
         user=('user to run command as', OPTION),
         )
 def delete_file(name, user):
+    "remove a file from FnxFS"
     if name not in SETTINGS.files:
         abort('file <%s> not in FnxFS (use "tree" to see folders/files' % name)
     if user and not AS_ROOT:
@@ -312,6 +313,7 @@ def delete_file(name, user):
         user=('user to run command as', OPTION),
         )
 def delete_folder(folder, user):
+    "remove a folder from FnxFS"
     f_plain = folder.rstrip('/')
     f_slash = f_plain / ''
     if f_plain not in SETTINGS.folders:

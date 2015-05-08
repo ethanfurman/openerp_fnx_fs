@@ -167,15 +167,16 @@ def change_file():
         desc=Spec('short description of file', OPTION, abbrev=None, default=''),
         freq=Spec('how often to republish file [only for "auto-publish" files]', OPTION, abbrev=None, default=''),
         user=('user to run command as', OPTION),
+        config=('location of configuration file', OPTION, 'c', Path),
         )
-def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user):
+def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user, config='/usr/local/etc/fnxfs_credentials'):
     "create a virtual file"
     execfile(config, globals())
     if user != AS_USER and not AS_ROOT:
         abort('must be root to specify a different USER')
     user = user or AS_USER
     if user is not None:
-        if not src.startswith(('/home/%s/' % AS_USER, '/home/.shadow/%s/' % AS_USER, '/home/.fnxfs_shadow/%s/' % AS_USER)):
+        if not src.startswith(('/home/%s/' % user, '/home/.shadow/%s/' % user, '/home/.fnxfs_shadow/%s/' % user)):
             abort("can only share files from USER's home directory")
     params = ['client:'+src, dst, '--styp=%s' % styp, '--ptyp=%s' % ptyp]
     if ro_users:
@@ -183,16 +184,16 @@ def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user):
     if rw_users:
         params.append('--rw-users=%s' % ','.join(rw_users))
     if user and user not in ro_users + rw_users:
-        rw_users.append(user)
+        rw_users += (user, )
     if desc:
         params.append('--desc="%s"' % desc.replace('"', '\\"'))
     if freq:
         params.append('--freq="%s"' % freq)
     if user:
         params.append('--user=%s' % user)
-    if script_verbose:
-        params.append('-' + 'v'*script_verbose)
-    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'create-file'] + params)
+    if script_verbosity:
+        params.append('-' + 'v'*script_verbosity)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'create-file'] + params, password=server_pass, pty=True)
     if attempt.stdout:
         print(attempt.stdout, verbose=0)
     if attempt.stderr:
@@ -210,8 +211,9 @@ def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user):
         cd_users=Spec('users with create/delete access [only for "virtual" folders]', MULTI, abbrev=None),
         desc=Spec('short description of folder', OPTION, abbrev=None, default=''),
         user=('user to run command as', OPTION),
+        config=('location of configuration file', OPTION, 'c', Path),
         )
-def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc):
+def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc, user, config='/usr/local/etc/fnxfs_credentials'):
     "create a new folder, specifying share and permission types, user access, and description"
     execfile(config, globals())
     if user != AS_USER and not AS_ROOT:
@@ -225,14 +227,14 @@ def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc):
     if cd_users:
         params.append('--cd-users=%s' % ','.join(cd_users))
     if user and user not in ro_users + rw_users + cd_users:
-        cd_users.append(user)
+        cd_users += (user, )
     if desc:
         params.append('--desc="%s"' % desc.replace('"', '\\"'))
     if user:
         params.append('--user=%s' % user)
-    if script_verbose:
-        params.append('-' + 'v'*script_verbose)
-    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'create-folder'] + params)
+    if script_verbosity:
+        params.append('-' + 'v'*script_verbosity)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'create-folder'] + params, password=server_pass, pty=True)
     if attempt.stdout:
         print(attempt.stdout, verbose=0)
     if attempt.stderr:
@@ -248,15 +250,17 @@ def change_folder():
 
 @Command(
         name=('path/name of file to remove', ),
+        config=('location of configuration file', OPTION, 'c', Path),
         )
-def delete_file(name):
+def delete_file(name, config='/usr/local/etc/fnxfs_credentials'):
     "remove a folder from FnxFS"
+    execfile(config, globals())
     params = [name]
     if AS_USER is not None:
         params.append('--user=%s' % AS_USER)
-    if script_verbose:
-        params.append('-' + 'v'*script_verbose)
-    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'delete-file'] + params)
+    if script_verbosity:
+        params.append('-' + 'v'*script_verbosity)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'delete-file'] + params, password=server_pass, pty=True)
     if attempt.stdout:
         print(attempt.stdout, verbose=0)
     if attempt.stderr:
@@ -267,15 +271,17 @@ def delete_file(name):
 
 @Command(
         name=('path/name of file to remove', ),
+        config=('location of configuration file', OPTION, 'c', Path),
         )
-def delete_file(name):
+def delete_file(name, config='/usr/local/etc/fnxfs_credentials'):
     "remove a file from FnxFS"
+    execfile(config, globals())
     params = [name]
     if AS_USER is not None:
         params.append('--user=%s' % AS_USER)
-    if script_verbose:
-        params.append('-' + 'v'*script_verbose)
-    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'delete-folder'] + params)
+    if script_verbosity:
+        params.append('-' + 'v'*script_verbosity)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'delete-folder'] + params, password=server_pass, pty=True)
     if attempt.stdout:
         print(attempt.stdout, verbose=0)
     if attempt.stderr:
@@ -287,15 +293,17 @@ def delete_file(name):
 @Command(
         name=Spec('name of file/folder/user to show', default=''),
         all_users=Spec('list all users', FLAG),
+        config=('location of configuration file', OPTION, 'c', Path),
         )
-def show(name, all_users):
+def show(name, all_users, config='/usr/local/etc/fnxfs_credentials'):
     "display information about a user/file/folder"
+    execfile(config, globals())
     params = [name]
     if all_users:
         params.append('--all-users')
-    if script_verbose:
-        params.append('-' + 'v'*script_verbose)
-    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'show'] + params)
+    if script_verbosity:
+        params.append('-' + 'v'*script_verbosity)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'show'] + params, password=server_pass, pty=True)
     if attempt.stdout:
         print(attempt.stdout, verbose=0)
     if attempt.stderr:
@@ -307,15 +315,17 @@ def show(name, all_users):
 @Command(
         path=Spec('path to examine', REQUIRED, default=Path('/')),
         include_files=Spec('display files', FLAG, 'f'),
+        config=('location of configuration file', OPTION, 'c', Path),
         )
-def tree(path, include_files):
+def tree(path, include_files, config='/usr/local/etc/fnxfs_credentials'):
     "display a tree of the folder/file structure in FnxFS"
+    execfile(config, globals())
     params = [path]
     if include_files:
         params.append('--include-files')
-    if script_verbose:
-        params.append('-' + 'v'*script_verbose)
-    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'show'] + params)
+    if script_verbosity:
+        params.append('-' + 'v'*script_verbosity)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'tree'] + params, password=server_pass, pty=True)
     if attempt.stdout:
         print(attempt.stdout, verbose=0)
     if attempt.stderr:

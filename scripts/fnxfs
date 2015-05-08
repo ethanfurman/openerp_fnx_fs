@@ -443,7 +443,7 @@ def tree(path, include_files, _prefix='', _files=defaultdict(list), _pool={}):
             _pool[current][0].append(leaf)
             _pool['/' + key] = ([], f)
     if not _prefix:
-        print(path, '/', sep='', verbose=0)
+        print(path/'', verbose=0)
     def walk(path='/'):
         # emulate os.walk on _pool
         current = path

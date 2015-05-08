@@ -359,6 +359,94 @@ def delete_user(login):
 
 
 @Command(
+        name=('file/folder/user to modify', ),
+        level=Spec('new privilege level for user (for users)', OPTION, choices=['consumer', 'creator', 'manager']),
+        read_users=('new list of read-only users (for files/folders)', MULTI),
+        write_users=('new list of read-write users (for files/folders)', MULTI),
+        create_users=('new list of read-write-create users (for folders', MULTI),
+        del_user=('users whose access to remove (for files/folders)', MULTI),
+        add_read_user=('users to add as read-only (for files/folders)', MULTI, None),
+        add_write_user=('users to add as read-write (for files/folders)', MULTI, None),
+        add_create_user=('users to add as read-write-create (for folders)', MULTI, None),
+        )
+def modify(
+        name, level,
+        read_users, write_users, create_users,
+        del_user,
+        add_read_user, add_write_user, add_create_user,
+        ):
+    "change permissions for users, files, or folders"
+    if not (
+            level or
+            read_users or write_users or create_users or
+            del_user or
+            add_read_user or add_write_user or add_create_user
+            ):
+        help('nothing to do')
+    if name in SETTINGS.users:
+        if not level:
+            help('only level can be specified for users')
+        if (
+            read_users or write_users or create_users or
+            del_user or
+            add_read_user or add_write_user or add_create_user
+            ):
+            abort("only level can be specified for users")
+        if not AS_ROOT:
+            abort("must be root to change a user's settings")
+        SETTINGS[user].level = level
+        write_users()
+        write_permissions()
+        return
+    elif name in SETTINGS.files:
+        type = 'file'
+        settings = SETTINGS.files[name]
+        if create_users:
+            help('create-users is only for folders, not files')
+        if add_create_user:
+            help('add-create-user is only for folders, not files')
+    elif name in SETTINGS.folders:
+        type = 'folder'
+        settings = SETTINGS.folders[name]
+    else:
+        abort('<%s> not found' % name)
+    # verify users are in system
+    for group in (read_users, write_users, create_users, add_read_user, add_write_user, add_create_user):
+        for user in group:
+            if user not in SETTINGS.users:
+                abort('user <%s> not in FnxFS' % user)
+    if read_users:
+        settings.read_users = list(read_users)
+    if write_users:
+        settings.write_users = list(write_users)
+    if create_users:
+        settings.create_delete_users = list(create_users)
+    for user in del_user:
+        if user in settings.read_users:
+            settings.read_users.remove(user)
+        if user in settings.write_users:
+            settings.write_users.remove(user)
+        if 'create_delete_users' in settings:
+            if user in settings.create_delete_users:
+                settings.create_delete_users.remove(user)
+    for user in add_read_user:
+        settings.read_users.append(user)
+    for user in add_write_user:
+        settings.write_user.append(user)
+    for user in add_create_user:
+        settings.create_delete_user.append(user)
+    write_files()
+    write_folders()
+    write_permissions()
+
+
+@Command()
+def refresh():
+    "rewrite permissions file from current settings"
+    write_permissions()
+
+
+@Command(
         subcommand=(
             'start | stop | restart shares from a client machine, or [in]active to list all [in]active shares',
             REQUIRED,

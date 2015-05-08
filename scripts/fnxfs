@@ -689,7 +689,7 @@ def write_files():
         files.write('# path\tshare-type\tpermission-type\tread\twrite\tdescription\tsource\tfrequency\n')
         for name in sorted(SETTINGS.files.keys()):
             v = SETTINGS.files[name]
-            files.write('%(name)s\t%(styp)s\t%(ptyp)s\t%(ro_users)s\t%(rw_users)s\t%(desc)s\t%(src)s\t%(freq)s\n' % dict(
+            files.write(('%(name)s\t%(styp)s\t%(ptyp)s\t%(ro_users)s\t%(rw_users)s\t%(desc)s\t%(src)s\t%(freq)s' % dict(
                     name=name,
                     styp=v.share_type,
                     ptyp=v.permissions_type,
@@ -698,14 +698,14 @@ def write_files():
                     desc=v.description,
                     src=v.source,
                     freq=v.frequency,
-                    ))
+                    )).strip() + '\n')
 
 def write_folders():
     with open(FOLDERS, 'w') as folders:
         folders.write('# path\tshare-type\tpermission-type\tread\twrite\tcreate/delete\tdescription\n')
         for name in sorted(SETTINGS.folders.keys()):
             v = SETTINGS.folders[name]
-            folders.write('%(name)s\t%(styp)s\t%(ptyp)s\t%(ro_users)s\t%(rw_users)s\t%(cd_users)s\t%(desc)s\n' % dict(
+            folders.write(('%(name)s\t%(styp)s\t%(ptyp)s\t%(ro_users)s\t%(rw_users)s\t%(cd_users)s\t%(desc)s' % dict(
                     name=name,
                     styp=v.share_type,
                     ptyp=v.permissions_type,
@@ -713,7 +713,7 @@ def write_folders():
                     rw_users=','.join(v.write_users),
                     cd_users=','.join(v.create_delete_users),
                     desc=v.description,
-                    ))
+                    )).strip() + '\n')
     # XXX: add write_mount functionality
 
 def write_permissions():

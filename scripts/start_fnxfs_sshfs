@@ -1,5 +1,0 @@
-#!/bin/sh
-#
-# start the sshfs shares for FnxFS
-
-/usr/local/bin/fnxfs sshfs start

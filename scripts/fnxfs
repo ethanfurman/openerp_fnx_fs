@@ -432,9 +432,9 @@ def modify(
     for user in add_read_user:
         settings.read_users.append(user)
     for user in add_write_user:
-        settings.write_user.append(user)
+        settings.write_users.append(user)
     for user in add_create_user:
-        settings.create_delete_user.append(user)
+        settings.create_delete_users.append(user)
     write_files()
     write_folders()
     write_permissions()

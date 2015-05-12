@@ -1,0 +1,549 @@
+#!/usr/local/bin/suid-python
+from __future__ import print_function
+
+from antipathy import Path
+import logging
+from logging import FileHandler
+DEFAULT_LOG = Path('/var/log/fnxfs.log')
+
+
+import sys
+PYTHON_TARGET = 'python%s.%s' % sys.version_info[:2]
+try:
+    sys.path.remove('/usr/local/lib/%s/dist-packages' % PYTHON_TARGET)
+except ValueError:
+    pass
+sys.path.insert(0, '/usr/local/lib/%s/dist-packages' % PYTHON_TARGET)
+
+
+import os
+import syslog
+
+from errno import *
+from pwd import getpwuid
+from scription import *
+from socket import socket, AF_INET, SOCK_STREAM
+from VSS.utils import get_local_ip
+
+LOGGER = logging.getLogger()
+LOGGER.setLevel(logging.DEBUG)
+FH = FileHandler(
+        filename=DEFAULT_LOG,
+        encoding='utf8',
+        )
+FH.setLevel(logging.WARNING)
+FH.setFormatter(logging.Formatter("%(thread)5d:  %(asctime)-30s %(name)-40s %(message)s"))
+LOGGER.addHandler(FH)
+LOGGER = logging.getLogger('fnxfs')
+
+VERSION = '0.9.beta1'
+
+HOME = Path('/home')
+SHADOW = Path('/home/.shadow')
+FNXFS_SHADOW = Path('/home/.fnxfs_shadow')
+TARGET = None
+TCP_PORT = 8068
+
+AS_ROOT = False
+AS_USER = getpwuid(os.getuid()).pw_name
+if AS_USER == 'root':
+    AS_ROOT = True
+    AS_USER = None
+
+
+@Script()
+def main():
+    syslog.syslog(' '.join([repr(a) for a in sys.argv]))
+    if os.getuid() == 0:
+        print('running as root')
+        syslog.syslog('running as root')
+    else:
+        syslog.syslog('running as user')
+        # only allow user functions
+        if module.script_command_name not in (
+                'create-file', 'delete-file', 'change-file',
+                'create-folder', 'delete-folder', 'change-folder',
+                ):
+            syslog.syslog('must be root to run %r' % module.script_command_name)
+            abort('must be root to run %r' % module.script_command_name)
+        print('running as', module.AS_USER)
+
+
+#---------------------------
+# FnxFS interaction commands
+#---------------------------
+
+@Command(
+        src=Spec('/path/to/filename', type=Path, abbrev=None),
+        dst=Spec('folder[/folder[/...]][/share_as_filename]', type=Path, abbrev=None),
+        styp=Spec('share type', OPTION, choices=['live', 'publish', 'auto-publish'], abbrev=None, default='live'),
+        ptyp=Spec('permission type', OPTION, choices=['custom', 'inherit'], abbrev=None, default='inherit'),
+        ro_users=Spec('users with read-only access', MULTI, abbrev=None),
+        rw_users=Spec('users with read-write access [only for "live" files]', MULTI, abbrev=None),
+        desc=Spec('short description of file', OPTION, abbrev=None, default=''),
+        freq=Spec('how often to republish file [only for "auto-publish" files]', OPTION, abbrev=None, default=''),
+        user=('user to run command as', OPTION),
+        config=('location of configuration file', OPTION, None, Path),
+        )
+def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user, config='/usr/local/etc/fnxfs_credentials'):
+    "create a virtual file"
+    execfile(config, globals())
+    if user != AS_USER and not AS_ROOT:
+        abort('must be root to specify a different USER')
+    user = user or AS_USER
+    if user is not None:
+        if not src.startswith(('/home/%s/' % user, '/home/.shadow/%s/' % user, '/home/.fnxfs_shadow/%s/' % user)):
+            abort("can only share files from USER's home directory")
+    params = ['client:'+src, dst, '--styp=%s' % styp, '--ptyp=%s' % ptyp]
+    if ro_users:
+        params.append('--ro-users=%s' % ','.join(ro_users))
+    if rw_users:
+        params.append('--rw-users=%s' % ','.join(rw_users))
+    if user and user not in ro_users + rw_users:
+        rw_users += (user, )
+    if desc:
+        params.append('--desc="%s"' % desc.replace('"', '\\"'))
+    if freq:
+        params.append('--freq="%s"' % freq)
+    if user:
+        params.append('--user=%s' % user)
+    if script_verbosity:
+        params.append('-' + 'v'*script_verbosity)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'create-file'] + params, password=server_pass, pty=True)
+    if attempt.stdout:
+        print(attempt.stdout, verbose=0)
+    if attempt.stderr:
+        print(attempt.stderr, file=stderr)
+    if attempt.returncode or attempt.stderr:
+        raise SystemExit(attempt.returncode or 1)
+
+
+@Command(
+        name=Spec('name of new folder', type=Path, abbrev=None),
+        styp=Spec('share type', OPTION, choices=['mirror', 'share', 'virtual'], abbrev=None, default='virtual'),
+        ptyp=Spec('permission type', OPTION, choices=['custom', 'inherit'], abbrev=None, default='inherit'),
+        ro_users=Spec('users with read-only access', MULTI, abbrev=None),
+        rw_users=Spec('users with read-write access [only for "virtual" folders', MULTI, abbrev=None),
+        cd_users=Spec('users with create/delete access [only for "virtual" folders]', MULTI, abbrev=None),
+        desc=Spec('short description of folder', OPTION, abbrev=None, default=''),
+        user=('user to run command as', OPTION),
+        config=('location of configuration file', OPTION, None, Path),
+        )
+def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc, user, config='/usr/local/etc/fnxfs_credentials'):
+    "create a new folder, specifying share and permission types, user access, and description"
+    execfile(config, globals())
+    if user != AS_USER and not AS_ROOT:
+        abort('must be root to specify a different USER')
+    user = user or AS_USER
+    params = [name, '--styp=%s' % styp, '--ptyp=%s' % ptyp]
+    if ro_users:
+        params.append('--ro-users=%s' % ','.join(ro_users))
+    if rw_users:
+        params.append('--rw-users=%s' % ','.join(rw_users))
+    if cd_users:
+        params.append('--cd-users=%s' % ','.join(cd_users))
+    if user and user not in ro_users + rw_users + cd_users:
+        cd_users += (user, )
+    if desc:
+        params.append('--desc="%s"' % desc.replace('"', '\\"'))
+    if user:
+        params.append('--user=%s' % user)
+    if script_verbosity:
+        params.append('-' + 'v'*script_verbosity)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'create-folder'] + params, password=server_pass, pty=True)
+    if attempt.stdout:
+        print(attempt.stdout, verbose=0)
+    if attempt.stderr:
+        print(attempt.stderr, file=stderr)
+    if attempt.returncode or attempt.stderr:
+        raise SystemExit(attempt.returncode or 1)
+
+
+@Command(
+        name=('path/name of file to remove', ),
+        config=('location of configuration file', OPTION, None, Path),
+        )
+def delete_file(name, config='/usr/local/etc/fnxfs_credentials'):
+    "remove a folder from FnxFS"
+    execfile(config, globals())
+    params = [name]
+    if AS_USER is not None:
+        params.append('--user=%s' % AS_USER)
+    if script_verbosity:
+        params.append('-' + 'v'*script_verbosity)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'delete-file'] + params, password=server_pass, pty=True)
+    if attempt.stdout:
+        print(attempt.stdout, verbose=0)
+    if attempt.stderr:
+        print(attempt.stderr, file=stderr)
+    if attempt.returncode or attempt.stderr:
+        raise SystemExit(attempt.returncode or 1)
+
+
+@Command(
+        name=('path/name of file to remove', ),
+        config=('location of configuration file', OPTION, None, Path),
+        )
+def delete_folder(name, config='/usr/local/etc/fnxfs_credentials'):
+    "remove a file from FnxFS"
+    execfile(config, globals())
+    params = [name]
+    if AS_USER is not None:
+        params.append('--user=%s' % AS_USER)
+    if script_verbosity:
+        params.append('-' + 'v'*script_verbosity)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'delete-folder'] + params, password=server_pass, pty=True)
+    if attempt.stdout:
+        print(attempt.stdout, verbose=0)
+    if attempt.stderr:
+        print(attempt.stderr, file=stderr)
+    if attempt.returncode or attempt.stderr:
+        raise SystemExit(attempt.returncode or 1)
+
+
+@Command(
+        name=('file/folder/user to modify', ),
+        level=Spec('new privilege level for user (for users)', OPTION, choices=['consumer', 'creator', 'manager']),
+        read_users=('new list of read-only users (for files/folders)', MULTI),
+        write_users=('new list of read-write users (for files/folders)', MULTI),
+        create_users=('new list of read-write-create users (for folders', MULTI),
+        del_user=('users whose access to remove (for files/folders)', MULTI),
+        add_read_user=('users to add as read-only (for files/folders)', MULTI, None),
+        add_write_user=('users to add as read-write (for files/folders)', MULTI, None),
+        add_create_user=('users to add as read-write-create (for folders)', MULTI, None),
+        config=('location of configuration file', OPTION, None, Path),
+        )
+def modify(
+        name, level,
+        read_users, write_users, create_users,
+        del_user,
+        add_read_user, add_write_user, add_create_user,
+        config='/usr/local/etc/fnxfs_credentials',
+        ):
+    "change permissions for users, files, or folders"
+    execfile(config, globals())
+    params = [name]
+    if level:
+        params.append('--level=%s' % level)
+    if read_users:
+        params.append('--read-users=%s' % ','.join(read_users))
+    if write_users:
+        params.append('--write-users=%s' % ','.join(write_users))
+    if create_users:
+        params.append('--create-users=%s' % ','.join(create_users))
+    if del_user:
+        params.append('--del-user=%s' % ','.join(del_user))
+    if add_read_user:
+        params.append('--add-read-user=%s' % ','.join(add_read_user))
+    if add_write_user:
+        params.append('--add-write-user=%s' % ','.join(add_write_user))
+    if add_create_user:
+        params.append('--add-create-user=%s' % ','.join(add_create_user))
+    if script_verbosity:
+        params.append('-' + 'v'*script_verbosity)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'modify'] + params, password=server_pass, pty=True)
+    if attempt.stdout:
+        print(attempt.stdout, verbose=0)
+    if attempt.stderr:
+        print(attempt.stderr, file=stderr)
+    if attempt.returncode or attempt.stderr:
+        raise SystemExit(attempt.returncode or 1)
+
+
+@Command(
+        config=('location of configuration file', OPTION, None, Path),
+        )
+def refresh(config='/usr/local/etc/fnxfs_credentials'):
+    "rewrite permissions file from current settings"
+    execfile(config, globals())
+    params = []
+    if script_verbosity:
+        params.append('-' + 'v'*script_verbosity)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'refresh'] + params, password=server_pass, pty=True)
+    if attempt.stdout:
+        print(attempt.stdout, verbose=0)
+    if attempt.stderr:
+        print(attempt.stderr, file=stderr)
+    if attempt.returncode or attempt.stderr:
+        raise SystemExit(attempt.returncode or 1)
+
+
+
+@Command(
+        name=Spec('name of file/folder/user to show', default=''),
+        all_users=Spec('list all users', FLAG),
+        config=('location of configuration file', OPTION, None, Path),
+        )
+def show(name, all_users, config='/usr/local/etc/fnxfs_credentials'):
+    "display information about a user/file/folder"
+    execfile(config, globals())
+    params = [name]
+    if all_users:
+        params.append('--all-users')
+    if script_verbosity:
+        params.append('-' + 'v'*script_verbosity)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'show'] + params, password=server_pass, pty=True)
+    if attempt.stdout:
+        print(attempt.stdout, verbose=0)
+    if attempt.stderr:
+        print(attempt.stderr, file=stderr)
+    if attempt.returncode or attempt.stderr:
+        raise SystemExit(attempt.returncode or 1)
+
+
+@Command(
+        path=Spec('path to examine', REQUIRED, default=Path('/')),
+        include_files=Spec('display files', FLAG, 'f'),
+        config=('location of configuration file', OPTION, None, Path),
+        )
+def tree(path, include_files, config='/usr/local/etc/fnxfs_credentials'):
+    "display a tree of the folder/file structure in FnxFS"
+    execfile(config, globals())
+    params = [path]
+    if include_files:
+        params.append('--include-files')
+    if script_verbosity:
+        params.append('-' + 'v'*script_verbosity)
+    attempt = Execute(['ssh', openerp, '/usr/local/bin/fnxfs', 'tree'] + params, password=server_pass, pty=True)
+    if attempt.stdout:
+        print(attempt.stdout, verbose=0)
+    if attempt.stderr:
+        print(attempt.stderr, file=stderr)
+    if attempt.returncode or attempt.stderr:
+        raise SystemExit(attempt.returncode or 1)
+
+
+#----------------
+# fnxfsd commands
+#----------------
+
+@Command(
+        user=('user to check on', ),
+        config=('location of configuration file', OPTION, None, Path),
+        )
+def dump_permissions(
+        user,
+        config='/usr/local/etc/fnxfs_credentials',
+        ):
+    """
+    Query the running daemon for the cache of the requested user.
+    """
+    execfile(config, globals())
+    user = user.encode('utf8')
+    server_ip = get_local_ip(openerp)
+    s = socket(AF_INET, SOCK_STREAM)
+    s.connect((server_ip, TCP_PORT))
+    s.sendall('service:dump_permissions\nuser:%s' % (user, ))
+    while True:
+        data = s.recv(1024)
+        if not data:
+            break
+        print(data, end='', verbose=0)
+    s.close()
+    print(verbose=0)
+
+
+@Command(
+        user=('user to check on', ),
+        config=('location of configuration file', OPTION, None, Path),
+        )
+def dump_folders(
+        user,
+        config='/usr/local/etc/fnxfs_credentials',
+        ):
+    """
+    Query the running daemon for the cache of the requested user.
+    """
+    execfile(config, globals())
+    user = user.encode('utf8')
+    server_ip = get_local_ip(openerp)
+    s = socket(AF_INET, SOCK_STREAM)
+    s.connect((server_ip, TCP_PORT))
+    s.sendall('service:dump_folders\nuser:%s' % (user, ))
+    while True:
+        data = s.recv(1024)
+        if not data:
+            break
+        print(data, end='', verbose=0)
+    s.close()
+    print(verbose=0)
+
+
+@Command(
+        user=('user to check on', ),
+        config=('location of configuration file', OPTION, None, Path),
+        )
+def dump_cache(
+        user,
+        config='/usr/local/etc/fnxfs_credentials',
+        ):
+    """
+    Query the running daemon for the cache of the requested user.
+    """
+    execfile(config, globals())
+    user = user.encode('utf8')
+    server_ip = get_local_ip(openerp)
+    s = socket(AF_INET, SOCK_STREAM)
+    s.connect((server_ip, TCP_PORT))
+    s.sendall('service:dump_cache\nuser:%s' % (user, ))
+    while True:
+        data = s.recv(1024)
+        if not data:
+            break
+        print(data, end='', verbose=0)
+    s.close()
+    print(verbose=0)
+
+
+@Command(
+        user=('user to check on', ),
+        file_name=('file to look for', ),
+        config=('location of configuration file', OPTION, None, Path),
+        )
+def find_path(
+        user,
+        file_name,
+        config='/usr/local/etc/fnxfs_credentials',
+        ):
+    """
+    Query the running daemon for the last path that had file_name in it.
+    """
+    execfile(config, globals())
+    user = user.encode('utf8')
+    file_name = file_name.encode('utf8')
+    print('checking user %r for %r' % (user, file_name))
+    server_ip = get_local_ip(openerp)
+    s = socket(AF_INET, SOCK_STREAM)
+    s.connect((server_ip, TCP_PORT))
+    s.sendall('service:find_path\nuser:%s\nfile_name:%s' % (user, file_name))
+    while True:
+        data = s.recv(1024)
+        if not data:
+            break
+        print(data, end='', verbose=0)
+    s.close()
+    print(verbose=0)
+
+@Command(
+        level=('new log level', REQUIRED, 'l', int),
+        )
+def log_level(
+        level,
+        ):
+    s = socket(AF_INET, SOCK_STREAM)
+    s.connect(('127.0.0.1', TCP_PORT))
+    s.sendall('service:log_level\nlevel:%d' % (level, ))
+    while True:
+        data = s.recv(1024)
+        if not data:
+            break
+        print(data, end='', verbose=0)
+    s.close()
+    print(verbose=0)
+
+
+@Command(
+    init=('overwrites existing contents in shadow directory', FLAG),
+    user=('only process specified user', OPTION),
+    )
+def sweep(init, user):
+    'moves user data (non-dot files) into a mirrored location controlled by FnxFS'
+    print('looking for candidates...', end='')
+    _squat()
+    possibles = [
+        p
+        for p in HOME.glob('*')
+        if
+           p.isdir() and
+           p[0] != '.' and
+           p not in ('lost+found', 'backup-media') and
+           (user is None or p.filename == user)
+        ]
+    print(' found %d' % len(possibles))
+    print('possibles:', possibles, verbose=2)
+    for p in possibles:
+        print('  checking %s...' % p)
+        targets = [
+            t
+            for t in p.listdir()
+            if
+                t[0] != '.' and
+                not p.islink(t) and
+                (p.isdir(t) or p.isfile(t))
+            ]
+        print('targets:', targets, verbose=2)
+        user = p.filename
+        for t in targets:
+            src = p/t
+            new_home = TARGET / user
+            dst = new_home / t
+            print('    moving %s to %s' % (src, dst))
+            if not new_home.exists():
+                new_home.mkdir()
+                stat = p.stat()
+                new_home.chown(stat.st_uid, stat.st_gid)
+                new_home.chmod(stat.st_mode)
+            try:
+                src.rename(dst)
+            except OSError, exc:
+                if exc.errno not in (EISDIR, ENOTEMPTY):
+                    raise
+                if not init:
+                    abort('directory %s already exists; did you mean to use --init?' % dst)
+                dst.rmtree()
+                src.rename(dst)
+            # *always* link to SHADOW
+            (SHADOW/user/t).symlink(src)
+
+
+@Command(
+    user=('only process specified user', OPTION),
+    )
+def undo_sweep(user):
+    'remove symbolic links and move user data back to /home/[user]/'
+    # data to move back is in TARGET
+    _squat()
+    possibles = [
+        p
+        for p in TARGET.glob('*')
+        if
+           p.isdir() and
+           p[0] != '.' and
+           p not in ('lost+found', ) and
+           (user is None or p.filename == user)
+        ]
+    print('possibles:', possibles, verbose=2)
+    problems = []
+    for p in possibles:
+        targets = p.listdir()
+        print('targets:', targets, verbose=2)
+        user = p.filename
+        for t in targets:
+            src = p/t
+            old_home = HOME / user
+            dst = old_home / t
+            if dst.exists():
+                if not dst.islink():
+                    problems.append(dst)
+                    continue
+                dst.unlink()
+            print('moving %s to %s' % (src, dst))
+            src.rename(dst)
+    if problems:
+        abort('unable to move the following files/directories:\n\t%s' % '\n\t'.join(problems))
+
+
+def _squat():
+    global TARGET
+    if FNXFS_SHADOW.exists():
+        squatt = FNXFS_SHADOW
+    else:
+        squatt = SHADOW
+    # make sure the directory doesn't change out from beneath our feet
+    # while we are moving data around
+    squatt.chdir()
+    TARGET = squatt
+
+
+if __name__ == "__main__":
+    Run()

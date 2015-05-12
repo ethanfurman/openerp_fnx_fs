@@ -1,16 +1,6 @@
 #!/usr/local/bin/suid-python
 from __future__ import print_function
 
-### BEGIN INIT INFO
-# Provides: fnxfsd_init
-# Required-Start: $remote_fs $syslog
-# Required-Stop: $remote_fs $syslog
-# Default-Start: 2 3 4 5
-# Default-Stop: 0 1 6
-# Short-Description: fnxfs filesystem daemon
-# Description: fnxfs filesystem daemon
-### END INIT INFO
-
 # this must happen first!
 from pandaemonium import Daemon, FileTracker, PidLockFile, LockError, AlreadyLocked
 from antipathy import Path
@@ -49,7 +39,6 @@ import operator as op
 import os
 import scription
 import SocketServer
-import syslog
 import threading
 import traceback
 
@@ -85,30 +74,8 @@ TCP_PORT = 8068
 DATA_LOCK = RLock()
 COMM_LOCK = RLock()
 CONTEXT = threading.local()  # used for thread-local storage
-AS_ROOT = False
-AS_USER = getpwuid(os.getuid()).pw_name
-if AS_USER == 'root':
-    AS_ROOT = True
-    AS_USER = None
 
-os.environ['PATH'] = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
-os.environ['HOME'] = '/root'
-
-if Path.exists('/run'):
-    PIDFILE = Path('/run/fnxfsd.pid')
-else:
-    PIDFILE = Path('/var/run/fnxfsd.pid')
-
-
-@Script()
-def main():
-    syslog.syslog(' '.join([repr(a) for a in sys.argv]))
-    if os.getuid() == 0:
-        print('running as root')
-        syslog.syslog('running as root')
-    else:
-        syslog.syslog('must be root to run %r' % module.script_command_name)
-        abort('must be root to run %r' % module.script_command_name)
+PIDFILE = Path('/var/run/fnxfsd.pid')
 
 
 #------------------------
@@ -170,7 +137,9 @@ def fnxfsd(
         port=8068,
         testing=False,
         ):
-
+    """
+    file-sharing system
+    """
     device = Path(device.encode(scription.LOCALE_ENCODING))
     mount = Path(mount.encode(scription.LOCALE_ENCODING))
     remote_root = Path(remote_root.encode(scription.LOCALE_ENCODING))

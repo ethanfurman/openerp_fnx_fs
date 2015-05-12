@@ -1,11 +1,9 @@
 #!/usr/local/bin/suid-python
+"""
+This tool interacts with the FnxFS system to share files and folders with other
+users.
+"""
 from __future__ import print_function
-
-from antipathy import Path
-import logging
-from logging import FileHandler
-DEFAULT_LOG = Path('/var/log/fnxfs.log')
-
 
 import sys
 PYTHON_TARGET = 'python%s.%s' % sys.version_info[:2]
@@ -17,24 +15,14 @@ sys.path.insert(0, '/usr/local/lib/%s/dist-packages' % PYTHON_TARGET)
 
 
 import os
-import syslog
 
+from antipathy import Path
 from errno import *
 from pwd import getpwuid
 from scription import *
 from socket import socket, AF_INET, SOCK_STREAM
 from VSS.utils import get_local_ip
 
-LOGGER = logging.getLogger()
-LOGGER.setLevel(logging.DEBUG)
-FH = FileHandler(
-        filename=DEFAULT_LOG,
-        encoding='utf8',
-        )
-FH.setLevel(logging.WARNING)
-FH.setFormatter(logging.Formatter("%(thread)5d:  %(asctime)-30s %(name)-40s %(message)s"))
-LOGGER.addHandler(FH)
-LOGGER = logging.getLogger('fnxfs')
 
 VERSION = '0.9.beta1'
 
@@ -53,18 +41,14 @@ if AS_USER == 'root':
 
 @Script()
 def main():
-    syslog.syslog(' '.join([repr(a) for a in sys.argv]))
     if os.getuid() == 0:
         print('running as root')
-        syslog.syslog('running as root')
     else:
-        syslog.syslog('running as user')
         # only allow user functions
         if module.script_command_name not in (
-                'create-file', 'delete-file', 'change-file',
+                'create-file', 'delete-file', 'modify',
                 'create-folder', 'delete-folder', 'change-folder',
                 ):
-            syslog.syslog('must be root to run %r' % module.script_command_name)
             abort('must be root to run %r' % module.script_command_name)
         print('running as', module.AS_USER)
 
@@ -86,7 +70,7 @@ def main():
         config=('location of configuration file', OPTION, None, Path),
         )
 def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user, config='/usr/local/etc/fnxfs_credentials'):
-    "create a virtual file"
+    "create a virtual file in the FnxFS system from a local file"
     execfile(config, globals())
     if user != AS_USER and not AS_ROOT:
         abort('must be root to specify a different USER')
@@ -164,7 +148,7 @@ def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc, user, co
         config=('location of configuration file', OPTION, None, Path),
         )
 def delete_file(name, config='/usr/local/etc/fnxfs_credentials'):
-    "remove a folder from FnxFS"
+    "remove a file from FnxFS"
     execfile(config, globals())
     params = [name]
     if AS_USER is not None:
@@ -185,7 +169,7 @@ def delete_file(name, config='/usr/local/etc/fnxfs_credentials'):
         config=('location of configuration file', OPTION, None, Path),
         )
 def delete_folder(name, config='/usr/local/etc/fnxfs_credentials'):
-    "remove a file from FnxFS"
+    "remove a folder from FnxFS"
     execfile(config, globals())
     params = [name]
     if AS_USER is not None:
@@ -254,7 +238,7 @@ def modify(
         config=('location of configuration file', OPTION, None, Path),
         )
 def refresh(config='/usr/local/etc/fnxfs_credentials'):
-    "rewrite permissions file from current settings"
+    "rewrite server permissions file from current settings"
     execfile(config, globals())
     params = []
     if script_verbosity:
@@ -325,9 +309,7 @@ def dump_permissions(
         user,
         config='/usr/local/etc/fnxfs_credentials',
         ):
-    """
-    Query the running daemon for the cache of the requested user.
-    """
+    "Query the running daemon for the permissions of the requested user."
     execfile(config, globals())
     user = user.encode('utf8')
     server_ip = get_local_ip(openerp)
@@ -351,9 +333,7 @@ def dump_folders(
         user,
         config='/usr/local/etc/fnxfs_credentials',
         ):
-    """
-    Query the running daemon for the cache of the requested user.
-    """
+    "Query the running daemon for the folders of the requested user."
     execfile(config, globals())
     user = user.encode('utf8')
     server_ip = get_local_ip(openerp)
@@ -377,9 +357,7 @@ def dump_cache(
         user,
         config='/usr/local/etc/fnxfs_credentials',
         ):
-    """
-    Query the running daemon for the cache of the requested user.
-    """
+    "Query the running daemon for the cache of the requested user."
     execfile(config, globals())
     user = user.encode('utf8')
     server_ip = get_local_ip(openerp)
@@ -405,9 +383,7 @@ def find_path(
         file_name,
         config='/usr/local/etc/fnxfs_credentials',
         ):
-    """
-    Query the running daemon for the last path that had file_name in it.
-    """
+    "Query the running daemon for the last path that had file_name in it."
     execfile(config, globals())
     user = user.encode('utf8')
     file_name = file_name.encode('utf8')
@@ -430,6 +406,12 @@ def find_path(
 def log_level(
         level,
         ):
+    """
+    Change the current logging level of fnxfsd
+        10 - debug
+        ...
+        50 - error
+    """
     s = socket(AF_INET, SOCK_STREAM)
     s.connect(('127.0.0.1', TCP_PORT))
     s.sendall('service:log_level\nlevel:%d' % (level, ))
@@ -500,7 +482,7 @@ def sweep(init, user):
     user=('only process specified user', OPTION),
     )
 def undo_sweep(user):
-    'remove symbolic links and move user data back to /home/[user]/'
+    'move user data back to /home/[user]/'
     # data to move back is in TARGET
     _squat()
     possibles = [

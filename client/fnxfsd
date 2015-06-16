@@ -60,7 +60,7 @@ from VSS.utils import get_local_ip
 from VSS.xfuse import FUSE, FuseOSError, ENOTSUP
 from VSS.xfuse import fuse_get_context as fuse_context
 
-VERSION = '1.1.beta8'
+VERSION = '1.1.beta10'
 
 HOME = Path('/home')
 SHADOW = Path('/home/.shadow')

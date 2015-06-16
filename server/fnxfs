@@ -21,6 +21,8 @@ import time
 
 FileTracker.install()
 
+VERSION = '0.9.beta10'
+
 LOG_FILE = Path('/var/log/openerp/fnxfs.log')
 FNXFS_LOCK = PidLockFile('/var/run/fnxfs.pid', timeout=60)
 with open(LOG_FILE, 'a') as logger:
@@ -43,11 +45,12 @@ if AS_USER == 'root':
     AS_ROOT = True
     AS_USER = None
 
-config = OrmFile('/etc/openerp/fnxfs_credentials')
+config = OrmFile('/etc/openerp/fnx.ini', section='fnxfsd')
 
 
 @Script()
 def main():
+    print('running as', AS_USER or 'root')
     print('entering main()')
     global CLIENT_IP
     client_ip = os.environ.get('SSH_CONNECTION')
@@ -141,23 +144,31 @@ def cp(
         rw_users=Spec('users with read-write access [only for "live" files]', MULTI, abbrev=None),
         desc=Spec('short description of file', OPTION, abbrev=None, default=''),
         freq=Spec('how often to republish file [only for "auto-publish" files]', OPTION, abbrev=None, default=''),
-        user=('user to run command as', OPTION),
+        as_user=('user to run command as', OPTION),
         )
-def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user):
+def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, as_user):
     "create new shared file, specifying share and permission types, user access, description, etc."
     # get names for source and destination
+    print('source file ->', src)
     src_filename = src.filename
     # add in CLIENT_IP if available and requested
     if CLIENT_IP and src.startswith('client:'):
         src = CLIENT_IP + src[6:]
     # check that folder is specified and exists
     # - first check if entire dst is a folder
+    print('destination file ->', dst)
     if dst not in SETTINGS.folders:
+        print('  not in SETTINGS.folders')
         if dst.path not in SETTINGS.folders:
-            abort('folder <%s> does not exist (use "tree" to see all folders/files)' % dst.path)
-    else:
+            abort('missing folder: <%s> does not exist (use "tree" to see all folders/files)' % dst.path)
+        print('  but %s is' % dst.path)
+    if not dst.filename:
         # dst was a path, so add the filename
         dst /= src_filename
+    print('destination file ->', dst)
+    # check for a valid filename
+    if is_tempfile(src_filename):
+        abort('invalid filename: filename cannot start with a period (.) or end with a tilde (~)')
     # check that filename isn't already shared
     if dst in SETTINGS.files:
         abort('file <%s> already shared (use "show" for details)' % dst)
@@ -169,26 +180,33 @@ def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user):
         help('cannot specify freq with non-auto-publish share type')
     # check that specified users exist
     non_users = []
+    if ro_users + rw_users:
+        ptyp = 'custom'
     for user in ro_users + rw_users:
-        if user not in SETTINGS.users:
+        if user == 'all':
+            continue
+        elif user not in SETTINGS.users:
             non_users.append(user)
     if non_users:
-        abort('following users do not exist: %s (use "users" to see all users)' % ', '.join(non_users))
+        abort('following users do not exist: %s (use "show --all-users" to see users)' % ', '.join(non_users))
     # ensure no tabs in description
     desc = desc.replace('\t',' ')
     # check that user has privilege
-    if user and not AS_ROOT:
+    if as_user and not AS_ROOT:
         abort('must be root to specify a different user')
-    user = user or AS_USER
+    user = as_user or AS_USER
     if user is not None:
+        print('user is', user)
         if dst.path == '/':
             if SETTINGS.users[user].level not in ('creator', 'manager'):
-                abort('permission denied')
+                abort('invalid folder: files must be shared in a virtual folder')
+        elif SETTINGS.folders[dst.path].share_type != 'virtual':
+            abourt('invalid folder: files must be shared in a virtual folder')
         elif user not in SETTINGS.folders[dst.path].create_delete_users:
             abort('permission denied')
     # okay, let's do this!
     # step 0: copy file into fnxfs directory structure
-    attempt = Execute(['scp', '-o', 'StrictHostKeyChecking=no', src, FS_ROOT/dst])
+    attempt = Execute(['scp', '-o', 'StrictHostKeyChecking=no', src, FS_ROOT/dst], pty=True, password=config.server_root)
     if attempt.stdout:
         print(attempt.stdout.rstrip())
     if attempt.stderr:
@@ -218,9 +236,9 @@ def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, user):
         rw_users=Spec('users with read-write access [only for "virtual" folders', MULTI, abbrev=None),
         cd_users=Spec('users with create/delete access [only for "virtual" folders]', MULTI, abbrev=None),
         desc=Spec('short description of folder', OPTION, abbrev=None, default=''),
-        user=('user to run command as', OPTION),
+        as_user=('user to run command as', OPTION),
         )
-def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc, user):
+def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc, as_user):
     "create a new folder, specifying share and permission types, user access, and description"
     # check that folder doesn't already exist
     name = name.rstrip('/')
@@ -232,31 +250,43 @@ def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc, user):
         abort('parent folder <%s> does not exist (use "tree" to see all folders/files)' % parent)
     # check that specified users exist
     non_users = []
-    for user in ro_users + rw_users + cd_users:
-        if user not in SETTINGS.users:
-            non_users.append(user)
+    found = False
+    for check_user in ro_users + rw_users + cd_users:
+        if check_user == as_user:
+            found = True
+        if check_user == 'all':
+            continue
+        elif check_user not in SETTINGS.users:
+            non_users.append(check_user)
     if non_users:
         abort('following users do not exist: %s (use "users" to see all users)' % ', '.join(non_users))
+    if as_user is not None and not found:
+        rw_users += (as_user, )
     # ensure no tabs in description
     desc = desc.replace('\t',' ')
     # if primary directory, permission type is 'custom'
-    if '/' not in name:
+    if '/' not in name or ro_users + rw_users + cd_users:
         ptyp = 'custom'
-    # check that user has privilege
-    if user and not AS_ROOT:
+    # check that user is creator/managor and has privilege
+    if as_user and not AS_ROOT:
         abort('must be root to specify a different user')
-    user = user or AS_USER
+    user = as_user or AS_USER
     if user is not None:
-        if '/' not in name:
-            if SETTINGS.users[user].level not in ('creator', 'manager'):
-                abort('permission denied')
-        elif user not in SETTINGS.folders[name.path].create_delete_users:
-            abort('permission denied')
+        # if '/' not in name:
+        if SETTINGS.users[user].level not in ('creator', 'manager'):
+            abort('permission denied: only creator and manager can create folders')
+        elif ('/' in name
+              and user not in SETTINGS.folders[name.path].create_delete_users
+              # and user not in SETTINGS.folders[name.path].write_users
+              ):
+            abort('permission denied: write or create permission needed on parent folder')
     # okay, let's do this!
     # step 0: create folder in fnxfs directory structure
     dst = FS_ROOT/name
     if not dst.exists():
         dst.mkdir()
+    elif not dst.isdir():
+        abort('%s already exists but is not a directory' % dst)
     # step 1: update SETTINGS.folders
     SETTINGS.folders[name] = AttrDict(
             share_type=styp,
@@ -288,21 +318,25 @@ def create_user(login, level):
 
 
 @Command(
-        name=('path/name of file to remove', ),
-        user=('user to run command as', OPTION),
+        name=Spec('path/name of file to remove', type=Path),
+        as_user=('user to run command as', OPTION),
         )
-def delete_file(name, user):
+def delete_file(name, as_user):
     "remove a file from FnxFS"
     if name not in SETTINGS.files:
         abort('file <%s> not in FnxFS (use "tree" to see folders/files' % name)
-    if user and not AS_ROOT:
+    if as_user and not AS_ROOT:
         abort('must be root to specify a different user')
-    user = user or AS_USER
+    user = as_user or AS_USER
     if user is not None:
-        if user not in SETTINGS.files[name].rw_users:
+        if user not in SETTINGS.files[name].write_users:
             abort('permission denied')
         elif user not in SETTINGS.folders[name.path].create_delete_users:
             abort('permission denied')
+    print('removing file %s' % FS_ROOT/name)
+    (FS_ROOT/name).unlink()
+    if (FS_ROOT/name).exists():
+        abort('file not deleted')
     del SETTINGS.files[name]
     write_files()
     write_permissions()
@@ -310,17 +344,17 @@ def delete_file(name, user):
 
 @Command(
         folder=Spec('path/folder to remove', type=Path),
-        user=('user to run command as', OPTION),
+        as_user=('user to run command as', OPTION),
         )
-def delete_folder(folder, user):
+def delete_folder(folder, as_user):
     "remove a folder from FnxFS"
     f_plain = folder.rstrip('/')
     f_slash = f_plain / ''
     if f_plain not in SETTINGS.folders:
         abort('folder <%s> not in FnxFS' % f_plain)
-    if user and not AS_ROOT:
+    if as_user and not AS_ROOT:
         abort('must be root to specify a different user')
-    user = user or AS_USER
+    user = as_user or AS_USER
     if user is not None:
         if '/' not in f_plain:
             if SETTINGS.users[user].level not in ('creator', ):
@@ -332,13 +366,19 @@ def delete_folder(folder, user):
     # mirror and share type folders can simply be deleted
     # virtual folders have to be checked for content
     if rec.share_type == 'virtual':
+        empty = True
         # verify no virtual folders or files still in this folder
         for f in SETTINGS.folders:
             if f.startswith(f_slash):
-                abort('folder <%s> not empty (use "tree" to see folders/files)' % f_plain)
+                empty = False
+                print('found', f)
         for f in SETTINGS.files:
             if f.startswith(f_slash):
-                abort('folder <%s> not empty (use "tree" to see folders/files)' % f_plain)
+                empty = False
+                print('found', f)
+        if not empty:
+            abort('folder <%s> not empty (use "tree" to see folders/files)' % f_plain)
+    (FS_ROOT/f_plain).rmdir()
     del SETTINGS.folders[f_plain]
     write_folders()
     write_permissions()
@@ -353,17 +393,36 @@ def delete_user(login):
         abort('must be root')
     if login not in SETTINGS.users:
         abort('user <%s> does not exist in FnxFS' % login)
-    del SETTINGS.user[login]
+    del SETTINGS.users[login]
+    for file in SETTINGS.files:
+        ro_users = SETTINGS.files[file].read_users
+        rw_users = SETTINGS.files[file].write_users
+        if login in ro_users:
+            ro_users.remove(login)
+        if login in rw_users:
+            rw_users.remove(login)
+    for folder in SETTINGS.folders:
+        ro_users = SETTINGS.folders[folder].read_users
+        rw_users = SETTINGS.folders[folder].write_users
+        cd_users = SETTINGS.folders[folder].create_delete_users
+        if login in ro_users:
+            ro_users.remove(login)
+        if login in rw_users:
+            rw_users.remove(login)
+        if login in cd_users:
+            cd_users.remove(login)
     write_users()
+    write_folders()
+    write_files()
     write_permissions()
 
 
 @Command(
         name=('file/folder/user to modify', ),
         level=Spec('new privilege level for user (for users)', OPTION, choices=['consumer', 'creator', 'manager']),
-        read_users=('new list of read-only users (for files/folders)', MULTI),
-        write_users=('new list of read-write users (for files/folders)', MULTI),
-        create_users=('new list of read-write-create users (for folders', MULTI),
+        ro_users=('new list of read-only users (for files/folders)', MULTI, 'r'),
+        rw_users=('new list of read-write users (for files/folders)', MULTI, 'w'),
+        cd_users=('new list of read-write-create users (for folders', MULTI, 'c'),
         del_user=('users whose access to remove (for files/folders)', MULTI),
         add_read_user=('users to add as read-only (for files/folders)', MULTI, None),
         add_write_user=('users to add as read-write (for files/folders)', MULTI, None),
@@ -371,14 +430,14 @@ def delete_user(login):
         )
 def modify(
         name, level,
-        read_users, write_users, create_users,
+        ro_users, rw_users, cd_users,
         del_user,
         add_read_user, add_write_user, add_create_user,
         ):
     "change permissions for users, files, or folders"
     if not (
             level or
-            read_users or write_users or create_users or
+            ro_users or rw_users or cd_users or
             del_user or
             add_read_user or add_write_user or add_create_user
             ):
@@ -387,21 +446,21 @@ def modify(
         if not level:
             help('only level can be specified for users')
         if (
-            read_users or write_users or create_users or
+            ro_users or rw_users or cd_users or
             del_user or
             add_read_user or add_write_user or add_create_user
             ):
             abort("only level can be specified for users")
         if not AS_ROOT:
             abort("must be root to change a user's settings")
-        SETTINGS[user].level = level
+        SETTINGS.users[name].level = level
         write_users()
         write_permissions()
         return
     elif name in SETTINGS.files:
         type = 'file'
         settings = SETTINGS.files[name]
-        if create_users:
+        if cd_users:
             help('create-users is only for folders, not files')
         if add_create_user:
             help('add-create-user is only for folders, not files')
@@ -411,17 +470,13 @@ def modify(
     else:
         abort('<%s> not found' % name)
     # verify users are in system
-    for group in (read_users, write_users, create_users, add_read_user, add_write_user, add_create_user):
+    for group in (ro_users, rw_users, cd_users, add_read_user, add_write_user, add_create_user, del_user):
         for user in group:
-            if user not in SETTINGS.users:
+            if user == 'all':
+                continue
+            elif user not in SETTINGS.users:
                 abort('user <%s> not in FnxFS' % user)
-    if read_users:
-        settings.read_users = list(read_users)
-    if write_users:
-        settings.write_users = list(write_users)
-    if create_users:
-        settings.create_delete_users = list(create_users)
-    for user in del_user:
+    for user in del_user + add_read_user + add_write_user + add_create_user + ro_users + rw_users + cd_users:
         if user in settings.read_users:
             settings.read_users.remove(user)
         if user in settings.write_users:
@@ -429,12 +484,19 @@ def modify(
         if 'create_delete_users' in settings:
             if user in settings.create_delete_users:
                 settings.create_delete_users.remove(user)
+    if ro_users:
+        settings.read_users = list(ro_users)
+    if rw_users:
+        settings.write_users = list(rw_users)
+    if cd_users:
+        settings.create_delete_users = list(cd_users)
     for user in add_read_user:
         settings.read_users.append(user)
     for user in add_write_user:
         settings.write_users.append(user)
     for user in add_create_user:
         settings.create_delete_users.append(user)
+    settings.permissions_type = 'custom'
     write_files()
     write_folders()
     write_permissions()
@@ -526,33 +588,50 @@ def shares(subcommand, share=''):
 
 @Command(
         name=Spec('name of file/folder/user to show', default=''),
-        all_users=Spec('list all users', FLAG),
+        all_users=Spec('list all users', FLAG, 'u'),
+        all_files=Spec('list all files', FLAG, 'f'),
+        all_folders=Spec('list all folders', FLAG, 'd'),
         )
-def show(name, all_users):
+def show(name, all_users, all_files, all_folders):
     "display information about a user/file/folder"
-    if not (name or all_users):
+    if not (name or all_users or all_files or all_folders):
         help('nothing to do')
     if all_users:
         for user in SETTINGS.users:
             attrs = SETTINGS.users[user]
-            print('%-25s %s' % (user, attrs.level), verbose=0)
-        return
-    res = SETTINGS.files.get(name)
-    if res is not None:
-        print('file:',
-                res.share_type, res.permissions_type, res.source, res.frequency,
-                res.read_users, res.write_users, res.description,
-                sep='\t', verbose=0)
-    res = SETTINGS.folders.get(name)
-    if res is not None:
-        print('folder:',
-                res.share_type, res.permissions_type,
-                res.read_users, res.write_users, res.create_delete_users,
-                res.description,
-                sep='\t', verbose=0)
-    res = SETTINGS.users.get(name)
-    if res is not None:
-        print('user:', res.level, sep='\t', verbose=0)
+            print('user: %-25s %s' % (user, attrs.level), verbose=0)
+    if all_files:
+        for file in SETTINGS.files:
+            attrs = SETTINGS.files[file]
+            print('file:', file,
+                    attrs.share_type, attrs.permissions_type, attrs.source, attrs.frequency,
+                    attrs.read_users, attrs.write_users, attrs.description,
+                    sep='\t', verbose=0)
+    if all_folders:
+        for folder in SETTINGS.folders:
+            attrs = SETTINGS.folders[folder]
+            print('folder:', folder,
+                    attrs.share_type, attrs.permissions_type,
+                    attrs.read_users, attrs.write_users, attrs.create_delete_users,
+                    attrs.description,
+                    sep='\t', verbose=0)
+    if name:
+        res = SETTINGS.files.get(name)
+        if res is not None:
+            print('file:', name,
+                    res.share_type, res.permissions_type, res.source, res.frequency,
+                    res.read_users, res.write_users, res.description,
+                    sep='\t', verbose=0)
+        res = SETTINGS.folders.get(name)
+        if res is not None:
+            print('folder:', name,
+                    res.share_type, res.permissions_type,
+                    res.read_users, res.write_users, res.create_delete_users,
+                    res.description,
+                    sep='\t', verbose=0)
+        res = SETTINGS.users.get(name)
+        if res is not None:
+            print('user:', name, res.level, sep='\t', verbose=0)
 
 
 @Command(
@@ -570,6 +649,7 @@ def tree(path, include_files, _prefix='', _files=defaultdict(list), _pool={}):
     if include_files and not _files:
         print('getting files')
         for file in SETTINGS.files:
+            print('adding', file, verbose=2)
             _files[file.path].append(file.filename)
     if not _pool:
         print('calculating pool')
@@ -584,19 +664,23 @@ def tree(path, include_files, _prefix='', _files=defaultdict(list), _pool={}):
                 current = '/' + current
             _pool[current][0].append(leaf)
             _pool['/' + key] = ([], f)
+        print('_pool:', _pool, verbose=2)
     if not _prefix:
         print(path/'', verbose=0)
     def walk(path='/'):
         # emulate os.walk on _pool
+        print('walk', path, _pool.get(path, ([], [])), verbose=2)
         current = path
-        dirs, files = _pool.get(path, ([], []))
+        dirs, files = _pool.get(current, ([], []))
         yield current, dirs, files
         for d in dirs:
             for current, dirs, files in walk(d):
-                yield current, dirs, files
+                print('subwalk', path/current, dirs, files, verbose=2)
+                yield path/current, dirs, files
     # now do the display
     for current, dirs, files in walk(path):
         if not current.startswith(path):
+            print('skipping', current, verbose=2)
             continue
         last_dir = last_file = None
         if files and not dirs:
@@ -614,7 +698,7 @@ def tree(path, include_files, _prefix='', _files=defaultdict(list), _pool={}):
             tree(current/dir, include_files, _prefix=_prefix+'|  ')
         if last_dir:
             print(_prefix, '`-- ', last_dir, '/', sep='', verbose=0)
-            tree(current+'/'+last_dir, include_files, _prefix=_prefix+'   ')
+            tree(current/last_dir, include_files, _prefix=_prefix+'   ')
         dirs[:] = []
 
 
@@ -699,7 +783,7 @@ def get_settings():
     SETTINGS = AttrDict(files=AttrDict(), folders=AttrDict(), users=AttrDict())
     with open(USERS) as users:
         print('reading user file')
-        next(users)
+        next(users, None)
         for line in users:
             try:
                 line = line.strip()
@@ -709,7 +793,7 @@ def get_settings():
                 LOGGER.exception('unable to parse fnxfs.users: %r', line)
     with open(FOLDERS) as folders:
         print('reading folders file')
-        next(folders)
+        next(folders, None)
         for line in folders:
             try:
                 line = line.strip()
@@ -743,7 +827,7 @@ def get_settings():
             vals.create_delete_users = perms.create_delete_users
     with open(FILES) as files:
         print('reading files file')
-        next(files)
+        next(files, None)
         for line in files:
             try:
                 line = line.strip()
@@ -776,6 +860,10 @@ def get_settings():
             vals.read_users = perms.read_users
             vals.write_users = perms.write_users + perms.create_delete_users
     print('returning from get_settings()')
+
+def is_tempfile(filename):
+    "returns True if filename looks like a temp"
+    return filename.startswith('.') or filename.endswith('~') or not filename
 
 def start_smb(source, options, mount):
     """
@@ -878,12 +966,24 @@ def write_permissions():
                     continue
                 seen.add(user)
                 perm.write('%s:read:/%s/*\n' % (user, name))
+        for name in sorted(SETTINGS.files.keys()):
+            vals = SETTINGS.files[name]
+            perm.write('all:none:/%s\n' % name)
+            seen = set()
+            for user in vals.write_users:
+                seen.add(user)
+                perm.write('%s:write:/%s\n' % (user, name))
+            for user in vals.read_users:
+                if user in seen:
+                    continue
+                seen.add(user)
+                perm.write('%s:read:/%s\n' % (user, name))
 
 def write_users():
     with open(USERS, 'w') as users:
         users.write('# user\tprivilege\n')
         for name in sorted(SETTINGS.users.keys()):
-            level = SETTINGS.users[name]
+            level = SETTINGS.users[name].level
             users.write('%s\t%s\n' % (name, level))
 
 

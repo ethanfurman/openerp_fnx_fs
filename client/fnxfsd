@@ -350,6 +350,9 @@ def _auto_success(*args, **kwds):
 def _no_access(*args, **kwds):
     raise OSError(EACCES, 'permission denied')
 
+def _no_such(*args, **kwds):
+    raise OSError(ENOENT, 'No such file or directory')
+
 def _no_support(*args, **kwds):
     raise OSError(ENOTSUP, 'operation not supported')
 
@@ -552,7 +555,7 @@ class FnxFS(object):
                         except KeyError:
                             # user has been removed from system?
                             self._check_permissions()
-                            _no_access()
+                            _no_such()
                         LOGGER.debug('effective user: %r', entry.pw_name)
                         CONTEXT.share_uid = entry.pw_uid
                         CONTEXT.share_gid = entry.pw_gid
@@ -631,12 +634,6 @@ class FnxFS(object):
                 permissions = iter(data.readlines())
             self._allowed_users = set(next(permissions).strip().split(','))
             LOGGER.debug('>>>   users: %r', self._allowed_users)
-            # if current user does not have at least Consumer privilege, we're done
-            if user not in self._allowed_users:
-                # remove symbolic link in local fs
-                # symlink = self._local_root / user / 'FnxFS'
-                # symlink.unlink()
-                return
             self._active_users = set([user])
             self._file_permissions[user] = user_permissions = {}
             self._folders[user] = user_folders = defaultdict(set)
@@ -645,11 +642,10 @@ class FnxFS(object):
             user_permissions[Path('/')] = 0
             user_folders[Path('')]
             user_permissions[Path('')] = 0
-            # add the symlink if it doesn't yet exist
-            # logger.debug('>>>   checking for symlink')
-            # if not fnxfs_symlink_target.exists():
-            #     logger.debug('>>>   creating symlink: %s --> %s', self._local_root/user/'FnxFS', fnxfs_symlink_target)
-            #     (self._local_root/user/'FnxFS').symlink(fnxfs_symlink_target)
+            # if current user does not have at least Consumer privilege, we're done
+            if user not in self._allowed_users:
+                LOGGER.debug('>>>   %s is not allowed, exiting', user)
+                return
             # process file
             target = user + ':'
             for line in permissions:
@@ -1320,7 +1316,7 @@ class FnxFS(object):
             # return names
 
     def remote_readlink(self, path):
-        raise OSError(ENOENT, 'no such file')
+        raise OSError(ENOENT, 'No such file or directory')
 
     def remote_release(self, path, fh):
         """

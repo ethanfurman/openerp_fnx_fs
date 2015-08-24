@@ -65,15 +65,19 @@ class TestBasicCommands(TestCase):
 
     def test_file(self):
         run('fnxfs create-folder test_basic_folder1')
-        run('fnxfs create-file %s test_basic_folder1/consumer --ro-users %s' % (Path.getcwd()/__file__, consumer1.login))
-        run('fnxfs create-file %s test_basic_folder1/manager --rw-users %s' % (Path.getcwd()/__file__, manager1.login))
+        run('fnxfs create-file %s test_basic_folder1/consumer --ro-users %s' % (Path.getcwd()*__file__, consumer1.login))
+        run('fnxfs create-file %s test_basic_folder1/manager --rw-users %s' % (Path.getcwd()*__file__, manager1.login))
         results = run('fnxfs show --all-files')
         expected = "file:\ttest_basic_folder1/consumer\tlive\tcustom\t172.27.11.95:/usr/local/share/python/fnxfs/client/test_fnxfs\t\t['%s']\t[]\t" % consumer1.login
         self.assertTrue(
                 expected in results,
-                '\n%s not in:\n%s' % (expected, '\n'.join(results)),
+                '\n%s\nnot in:\n%s' % (expected, '\n'.join(results)),
                 )
-        self.assertTrue("file:\ttest_basic_folder1/manager\tlive\tcustom\t172.27.11.95:/usr/local/share/python/fnxfs/client/test_fnxfs\t\t[]\t['%s']\t" % manager1.login in results)
+        expected = "file:\ttest_basic_folder1/manager\tlive\tcustom\t172.27.11.95:/usr/local/share/python/fnxfs/client/test_fnxfs\t\t[]\t['%s']\t" % manager1.login
+        self.assertTrue(
+                expected in results,
+                '\n%s\nnot in:\n%s' % (expected, '\n'.join(results)),
+                )
         run('fnxfs delete-file test_basic_folder1/consumer')
         run('fnxfs delete-file test_basic_folder1/manager')
         run('fnxfs delete-folder test_basic_folder1')
@@ -82,7 +86,7 @@ class TestBasicCommands(TestCase):
 
     def test_modify(self):
         run('fnxfs create-folder test_modify_folder1')
-        run('fnxfs create-file %s test_modify_folder1/empty' % (Path.getcwd()/__file__, ))
+        run('fnxfs create-file %s test_modify_folder1/empty' % (Path.getcwd()*__file__, ))
         run('fnxfs create-user test_average_joe consumer')
         self.assertEqual(
                 run('fnxfs show test_modify_folder1')[0] ,
@@ -145,34 +149,15 @@ class TestBasicCommands(TestCase):
             self.assertTrue(users.get(user, None) is None, 'user %s still exists' % (user, ))
 
 
-class TestUserFnxFS(TestCase):
-
-    def test_consumer_create_virtual_root_folder_fails(self):
-        self.assertRaises(IOError, run, 'fnxfs create-folder test_consumer_virtual --as-user %s' % consumer1.login)
-        self.assertRaises(IOError, run, 'fnxfs create-folder test_consumer_virtual --as-user %s' % consumer2.login)
-
-    def test_consumer_create_virtual_nested_folder_fails(self):
-        self.assertRaises(IOError, run, 'fnxfs create-folder test_virtual1/test_consumer1_virtual --as-user %s' % consumer2.login)
-        self.assertRaises(IOError, run, 'fnxfs create-folder test_virtual1/test_consumer1_virtual --as-user %s' % consumer1.login)
-
-    @skip
-    def test_consumer_create_mirror_folder_fails(self):
-        pass
+class TestUserPositiveFnxFS(TestCase):
 
     @skip
     def test_consumer_create_shared_folder_succeeds(self):
         pass
 
-    def test_creator_create_virtual_folder_fails(self):
-        self.assertRaises(IOError, run, 'fnxfs create-folder test_virtual1/test_virtual11 --as-user %s' % creator2.login)
-
     def test_creator_create_virtual_folder_succeeds(self):
         run('fnxfs create-folder test_virtual5 --as-user %s' % creator1.login)
         run('fnxfs create-folder test_virtual1/test_virtual3 --as-user %s' % creator1.login)
-
-    @skip
-    def test_creator_create_mirror_folder_fails(self):
-        pass
 
     @skip
     def test_creator_create_shared_folder_succeeds(self):
@@ -190,15 +175,6 @@ class TestUserFnxFS(TestCase):
     def test_manager_create_shared_folder_succeeds(self):
         pass
 
-    def test_consumer_create_file_fails(self):
-        with temp_file(consumer2, '/home/%(login)s/some_file.txt', content='%(name)s is the best!', share='_%(login)s') as tf:
-            values = {
-                    'src': tf.rel_name,
-                    'dst': 'test_virtual1/%s' % tf.oe_name,
-                    'login': tf.user.login
-                    }
-            self.assertRaises(IOError, run, 'fnxfs create-file %(src)s %(dst)s --as-user=%(login)s' % values)
-
     def test_consumer_create_file_succeeds(self):
         with temp_file(consumer1, '/home/%(login)s/some_file.txt', content='%(name)s is the best!', share='_%(login)s') as tf:
             values = {
@@ -207,15 +183,6 @@ class TestUserFnxFS(TestCase):
                     'login': tf.user.login
                     }
             run('fnxfs create-file %(src)s %(dst)s --as-user=%(login)s -v' % values)
-
-    def test_creator_create_file_fails(self):
-        with temp_file(creator2, '/home/%(login)s/some_file.txt', content='%(name)s is the best!', share='_%(login)s') as tf:
-            values = {
-                    'src': tf.rel_name,
-                    'dst': 'test_virtual1/%s' % tf.oe_name,
-                    'login': tf.user.login
-                    }
-            self.assertRaises(IOError, run, 'fnxfs create-file %(src)s %(dst)s --as-user=%(login)s' % values)
 
     def test_creator_create_file_succeeds(self):
         with temp_file(creator1, '/home/%(login)s/some_file.txt', content='%(name)s is the best!', share='_%(login)s') as tf:
@@ -226,15 +193,6 @@ class TestUserFnxFS(TestCase):
                     }
             run('fnxfs create-file %(src)s %(dst)s --as-user=%(login)s' % values)
 
-    def test_manager_create_file_fails(self):
-        with temp_file(manager2, '/home/%(login)s/some_file.txt', content='%(name)s is the best!', share='_%(login)s') as tf:
-            values = {
-                    'src': tf.rel_name,
-                    'dst': 'test_virtual1/%s' % tf.oe_name,
-                    'login': tf.user.login
-                    }
-            self.assertRaises(IOError, run, 'fnxfs create-file %(src)s %(dst)s --as-user=%(login)s' % values)
-
     def test_manager_create_file_succeeds(self):
         with temp_file(manager1, '/home/%(login)s/some_file.txt', content='%(name)s is the best!', share='_%(login)s') as tf:
             values = {
@@ -244,23 +202,99 @@ class TestUserFnxFS(TestCase):
                     }
             run('fnxfs create-file %(src)s %(dst)s --as-user=%(login)s' % values)
 
+    def test_consumer_read_access_list_succeeds(self):
+        with user_ids(*consumer1.ids):
+            test_dir = Path('/home/%s/FnxFS/test_virtual3' % consumer1.login)
+            self.assertTrue(test_dir.exists(), '%s does not exist?' % test_dir)
+
+    def test_consumer_read_access_read_succeeds(self):
+        with user_ids(*consumer1.ids):
+            test_dir = Path('/home/%s/FnxFS/test_virtual3/test_fnxfs' % consumer1.login)
+            fh = test_dir.open()
+            fh.close()
+
+    @skip
+    def test_creator_read_access_list_succeeds(self):
+        pass
+
+    @skip
+    def test_creator_read_access_read_succeeds(self):
+        pass
+
+    @skip
+    def test_manager_read_access_list_succeeds(self):
+        pass
+
+    @skip
+    def test_manager_read_access_read_succeeds(self):
+        pass
+
+
+class TestUserNegativeFnxFS(TestCase):
+
+    def test_consumer_create_virtual_root_folder_fails(self):
+        self.assertRaises(IOError, run, 'fnxfs create-folder test_consumer_virtual --as-user %s' % consumer1.login)
+        self.assertRaises(IOError, run, 'fnxfs create-folder test_consumer_virtual --as-user %s' % consumer2.login)
+
+    def test_consumer_create_virtual_nested_folder_fails(self):
+        self.assertRaises(IOError, run, 'fnxfs create-folder test_virtual1/test_consumer1_virtual --as-user %s' % consumer2.login)
+        self.assertRaises(IOError, run, 'fnxfs create-folder test_virtual1/test_consumer1_virtual --as-user %s' % consumer1.login)
+
+    @skip
+    def test_consumer_create_mirror_folder_fails(self):
+        pass
+
+    def test_creator_create_virtual_folder_fails(self):
+        self.assertRaises(IOError, run, 'fnxfs create-folder test_virtual1/test_virtual11 --as-user %s' % creator2.login)
+
+    @skip
+    def test_creator_create_mirror_folder_fails(self):
+        pass
+
+    def test_consumer_create_file_fails(self):
+        with temp_file(consumer2, '/home/%(login)s/some_file.txt', content='%(name)s is the best!', share='_%(login)s') as tf:
+            values = {
+                    'src': tf.rel_name,
+                    'dst': 'test_virtual1/%s' % tf.oe_name,
+                    'login': tf.user.login
+                    }
+            self.assertRaises(IOError, run, 'fnxfs create-file %(src)s %(dst)s --as-user=%(login)s' % values)
+
+    def test_creator_create_file_fails(self):
+        with temp_file(creator2, '/home/%(login)s/some_file.txt', content='%(name)s is the best!', share='_%(login)s') as tf:
+            values = {
+                    'src': tf.rel_name,
+                    'dst': 'test_virtual1/%s' % tf.oe_name,
+                    'login': tf.user.login
+                    }
+            self.assertRaises(IOError, run, 'fnxfs create-file %(src)s %(dst)s --as-user=%(login)s' % values)
+
+    def test_manager_create_file_fails(self):
+        with temp_file(manager2, '/home/%(login)s/some_file.txt', content='%(name)s is the best!', share='_%(login)s') as tf:
+            values = {
+                    'src': tf.rel_name,
+                    'dst': 'test_virtual1/%s' % tf.oe_name,
+                    'login': tf.user.login
+                    }
+            self.assertRaises(IOError, run, 'fnxfs create-file %(src)s %(dst)s --as-user=%(login)s' % values)
+
     def test_consumer_no_access_list_fails(self):
         with user_ids(*consumer2.ids):
             self.assertFalse(Path('/home/%s/FnxFS/test_virtual3' % consumer2.login).exists())
 
     def test_consumer_no_access_read_fails(self):
-        run('fnxfs create-file %s test_virtual2/consumer2_no_access --ro-users %s' % (Path.getcwd()/__file__, consumer1.login))
+        run('fnxfs create-file %s test_virtual2/consumer2_no_access --ro-users %s' % (Path.getcwd()*__file__, consumer1.login))
         with user_ids(*consumer2.ids):
             self.assertRaises(IOError, Path('/home/%s/FnxFS/test_virtual2/consumer2_no_access' % consumer2.login).open)
 
     def test_consumer_no_access_write_fails1(self):
-        run('fnxfs create-file %s test_virtual2/consumer2_no_write_access --ro-users %s' % (Path.getcwd()/__file__, consumer2.login))
+        run('fnxfs create-file %s test_virtual2/consumer2_no_write_access --ro-users %s' % (Path.getcwd()*__file__, consumer2.login))
         with user_ids(*consumer2.ids):
             self.assertTrue(Path('/home/%s/FnxFS/test_virtual2/consumer2_no_write_access' % consumer2.login).exists())
             self.assertRaises(IOError, Path('/home/%s/FnxFS/test_virtual2/consumer2_no_write_access' % consumer2.login).open, 'w')
         
     def test_consumer_no_access_write_fails2(self):
-        run('fnxfs create-file %s test_virtual3/consumer2_no_write_access --ro-users %s' % (Path.getcwd()/__file__, consumer2.login))
+        run('fnxfs create-file %s test_virtual3/consumer2_no_write_access --ro-users %s' % (Path.getcwd()*__file__, consumer2.login))
         with user_ids(*consumer2.ids):
             self.assertTrue(Path('/home/%s/FnxFS/test_virtual3/consumer2_no_write_access' % consumer2.login).exists())
             self.assertRaises(IOError, Path('/home/%s/FnxFS/test_virtual3/consumer2_no_write_access' % consumer2.login).open, 'w')
@@ -289,27 +323,8 @@ class TestUserFnxFS(TestCase):
     def test_manager_no_access_write_fails(self):
         pass
 
-    def test_consumer_read_access_list_succeeds(self):
-        with user_ids(*consumer1.ids):
-            test_dir = Path('/home/%s/FnxFS/test_virtual3' % consumer1.login)
-            self.assertTrue(test_dir.exists(), '%s does not exist?' % test_dir)
-
-    def test_consumer_read_access_read_succeeds(self):
-        with user_ids(*consumer1.ids):
-            test_dir = Path('/home/%s/FnxFS/test_virtual3/test_fnxfs' % consumer1.login)
-            fh = test_dir.open()
-            fh.close()
-
     @skip
     def test_consumer_read_access_write_fails(self):
-        pass
-
-    @skip
-    def test_creator_read_access_list_succeeds(self):
-        pass
-
-    @skip
-    def test_creator_read_access_read_succeeds(self):
         pass
 
     @skip
@@ -317,17 +332,8 @@ class TestUserFnxFS(TestCase):
         pass
 
     @skip
-    def test_manager_read_access_list_succeeds(self):
-        pass
-
-    @skip
-    def test_manager_read_access_read_succeeds(self):
-        pass
-
-    @skip
     def test_manager_read_access_write_fails(self):
         pass
-
 
 
 # def login(user):
@@ -443,22 +449,30 @@ manager2 = AttrDict(name='FnxFS Test Manager 2', login='fnxfs_manager2', passwor
 
 def setup():
     for user in (consumer1, consumer2, creator1, creator2, manager1, manager2):
-        print('creating user', user.name)
+        print('creating user in local system', user.name)
         Execute('useradd -m %s' % user.login)
         user.ids = tuple(pwd.getpwnam(user.login)[2:4])        
         home_FnxFS = Path('/home/%s/FnxFS' % user.login)
         shadow_dir = Path('/home/.shadow/%s' % user.login)
         if not shadow_dir.exists():
-            shadow_dir.mkdir()
-        if not home_FnxFS.exists('FnxFS'):
-            shadow_dir.symlink('FnxFS', home_FnxFS)
+            shadow_dir.mkdir(0755)
+            shadow_dir.chown(*user.ids)
+        # if not home_FnxFS.exists('FnxFS'):
+        #     shadow_dir.symlink('FnxFS', home_FnxFS)
+        print('creating user on server', user.name)
         run('fnxfs create-user %s %s' % (user.login, user.level))
+        print('\n'.join(sorted(Path('/home/%s' % user.login).listdir())))
+        print('-' * 75)
     # pause('pausing... (elevator music) ...')
     run('fnxfs create-folder test_virtual1 --ro-users=all --cd-users=fnxfs_consumer1,fnxfs_creator1,fnxfs_manager1')
     run('fnxfs create-folder test_virtual2 --ro-users=all --rw-users=fnxfs_consumer1,fnxfs_creator1,fnxfs_manager1')
     run('fnxfs create-folder test_virtual3 --ro-users=fnxfs_consumer1,fnxfs_creator1,fnxfs_manager1')
-    run('fnxfs create-file %s test_virtual3/ --ro-users fnxfs_consumer1 --rw-users fnxfs_manager1' % (Path.getcwd()/__file__, ))
-    # pause('pausing... (elevator music) ...')
+    run('fnxfs create-file %s test_virtual3/ --ro-users fnxfs_consumer1 --rw-users fnxfs_manager1' % (Path.getcwd()*__file__, ))
+    run('fnxfs sweep --user %s --verbose=%d' % (
+        ','.join(user.login for user in (consumer1, consumer2, creator1, creator2, manager1, manager2)),
+        script_verbosity,
+        ))
+    # pause('pausing... (elevator music) ... (check sweep) ...')
 
 @Command()
 def takedown():
@@ -475,14 +489,15 @@ def takedown():
         # if attempt.returncode:
         #     print(attempt.stdout, file=stderr)
         grace_period = wait_and_check(10)
-        if Path('/home/.shadow').exists(user.login):
+        if Path('/home/.shadow/%s/FnxFS' % user.login).exists():
             while grace_period:
                 print('waiting to check on', user.login, verbose=2)
-                if not Path('/home/.shadow/%s' % user.login).listdir():
+                if not Path('/home/.shadow/%s/FnxFS' % user.login).listdir():
                     break
             else:
                 print('unable to remove user', user.login)
                 continue
+        if Path('/home/.shadow').exists(user.login):
             Path.rmtree('/home/.shadow/%s' % user.login)
     for line in run('fnxfs show --all-users'):
         user = line.split()[1]

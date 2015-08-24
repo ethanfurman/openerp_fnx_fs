@@ -18,7 +18,7 @@ import os
 
 from antipathy import Path
 from errno import *
-from pwd import getpwuid
+from pwd import getpwuid, getpwnam
 from scription import *
 from socket import socket, AF_INET, SOCK_STREAM
 from VSS.utils import get_local_ip
@@ -59,7 +59,7 @@ def main(as_user, config, openerp):
         if module.script_command_name not in (
                 'create-file', 'delete-file', 'modify',
                 'create-folder', 'delete-folder', 'change-folder',
-                'modify', 'show', 'tree',
+                'modify', 'show', 'sweep', 'tree',
                 ):
             abort('must be root to run %r' % module.script_command_name)
         print('running as', module.AS_USER)
@@ -380,7 +380,7 @@ def log_level(level):
 
 @Command(
     init=('overwrites existing contents in shadow directory', FLAG),
-    user=('only process specified user', OPTION),
+    user=('only process specified user', MULTI),
     )
 def sweep(init, user):
     'moves user data (non-dot files) into a mirrored location controlled by FnxFS'
@@ -393,12 +393,17 @@ def sweep(init, user):
            p.isdir() and
            p[0] != '.' and
            p not in ('lost+found', 'backup-media') and
-           (user is None or p.filename == user)
+           (not user or p.filename in user)
         ]
     print(' found %d' % len(possibles))
     print('possibles:', possibles, verbose=2)
     for p in possibles:
         print('  checking %s...' % p)
+        # create FnxFS link if not already present
+        symlink = p/'FnxFS'
+        if not symlink.exists():
+            print('    creating symlink %s' % symlink)
+            (SHADOW/p.filename/'FnxFS').symlink(symlink)
         targets = [
             t
             for t in p.listdir()
@@ -415,10 +420,10 @@ def sweep(init, user):
             dst = new_home / t
             print('    moving %s to %s' % (src, dst))
             if not new_home.exists():
+                st_uid, st_gid = getpwnam(user)[2:4]
                 new_home.mkdir()
-                stat = p.stat()
-                new_home.chown(stat.st_uid, stat.st_gid)
-                new_home.chmod(stat.st_mode)
+                new_home.chown(st_uid, st_gid)
+                new_home.chmod(0755)
             try:
                 src.rename(dst)
             except OSError, exc:

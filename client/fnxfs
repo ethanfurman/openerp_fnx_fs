@@ -24,7 +24,7 @@ from socket import socket, AF_INET, SOCK_STREAM
 from VSS.utils import get_local_ip
 
 
-VERSION = '0.9.beta10'
+VERSION = 'client 0.9.beta10'
 
 HOME = Path('/home')
 SHADOW = Path('/home/.shadow')
@@ -385,6 +385,8 @@ def log_level(level):
 def sweep(init, user):
     'moves user data (non-dot files) into a mirrored location controlled by FnxFS'
     print('looking for candidates...', end='')
+    if not SHADOW.exists():
+        SHADOW.mkdir()
     _squat()
     possibles = [
         p

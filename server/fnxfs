@@ -21,7 +21,7 @@ import time
 
 FileTracker.install()
 
-VERSION = '0.9.beta10'
+VERSION = 'server 0.9.beta10'
 
 LOG_FILE = Path('/var/log/openerp/fnxfs.log')
 FNXFS_LOCK = PidLockFile('/var/run/fnxfs.pid', timeout=60)

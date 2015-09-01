@@ -59,6 +59,12 @@ def main():
         print('CLIENT_IP: %s' % CLIENT_IP)
     with FNXFS_LOCK:
         print('getting current settings')
+        if not USERS.exists():
+            USERS.open('w').close()
+        if not FILES.exists():
+            FILES.open('w').close()
+        if not FOLDERS.exists():
+            FOLDERS.open('w').close()
         get_settings()
         print('calling %s' % script_command_name)
         script_command()

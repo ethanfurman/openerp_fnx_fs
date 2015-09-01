@@ -18,12 +18,14 @@ archive of the shared files::
 
 The supporting files are::
 
+  - /etc/openerp/fnx.ini [1]
+
   - /var/openerp/fnxfs.files
   - /var/openerp/fnxfs.folders
   - /var/openerp/fnxfs.mount
   - /var/openerp/fnxfs.permissions
 
-all of which should be created automatically by fnxfs.
+All (except the first) should be created automatically by fnxfs.
 
 
 On the Client
@@ -41,19 +43,28 @@ the startup fnxfsd.py script (along with a symlink to it)::
 
 The supporting files/folders are::
 
-  - /usr/local/etc/fnxfs_credentials [1]
-  - /home/.shadow [2]
+  - /usr/local/etc/fnxfs_credentials [2]
+  - /home/.shadow [3]
 
 
 Foot notes
 ----------
 
-1.  The contents of `fnxfs_credentials`::
+1.  `fnx.ini` should have a section that looks like::
+
+    [fnxfsd]
+    server_root = '...'
+    server_user = 'openerp'
+    server_pass = '...'
+    openerp = 'ip.address'
+
+
+2.  The contents of `fnxfs_credentials`::
 
     root = '...'            # root password for this machine (in quotes)
     server_user = 'root'
     server_pass = '...'     # root password for server user (in quotes)
     openerp = '...'         # ip address of openerp server (in quotes)
 
-2.  The .shadow folder will be created when `fnxfs sweep` is run for the
+3.  The .shadow folder will be created when `fnxfs sweep` is run for the
     first time, or `fnxfsd` is run the first time.

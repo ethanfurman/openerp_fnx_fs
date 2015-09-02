@@ -118,9 +118,11 @@ def cp(
     os.setuid(0)
     os.setgid(0)
     if not src.isdir():
-        if not dst.exists() and not force:
+        if not (FS_ROOT/dst).exists() and not force:
             abort('destination file does not exist (use --force to copy anyway)')
-        copy(src, dst, timeout)
+        copy(src, FS_ROOT/dst, timeout)
+        (FS_ROOT/dst).chown(*OPENERP_IDS)
+        (FS_ROOT/dst).chmod(0770)
     else:
         for dirpath, dirnames, filenames in src.walk():
             for fn in filenames:
@@ -141,7 +143,7 @@ def cp(
                 new_fn = new_fn.replace('%20', ' ')
                 new_fn = ''.join([ch for ch in new_fn if ord(ch) < 128])
                 new_fn = fn.path / new_fn
-                copy(dirpath/fn, dst/dirpath/new_fn, timeout)
+                copy(dirpath/fn, FS_ROOT/dst/dirpath/new_fn, timeout)
 
 
 @Command(
@@ -215,6 +217,7 @@ def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, as_user):
             abort('permission denied')
     # okay, let's do this!
     # step 0: copy file into fnxfs directory structure
+    print('executing:', 'scp', '-o', 'StrictHostKeyChecking=no', src, FS_ROOT/dst)
     attempt = Execute(['scp', '-o', 'StrictHostKeyChecking=no', src, FS_ROOT/dst], pty=True, password=config.server_root)
     if attempt.stdout:
         print(attempt.stdout.rstrip())
@@ -733,15 +736,16 @@ def copy(src, dst, timeout):
     archive_dst = ARCHIVE_ROOT / (dst - FS_ROOT)
     if not archive_dst.exists():
         archive_dst.makedirs() #owner=openerp_ids)
-    if not dst.exists():
-        dst.makedirs() #owner=openerp_ids)
+    if not dst.path.exists():
+        dst.path.makedirs() #owner=openerp_ids)
     with PidLockFile(archive_dst/'locked.pid', timeout=timeout):
         src.copy(dst)
         # dst.chown(*openerp_ids)
         if archive_needed(dst):
             archive_dst = next_archive_name(archive_dst)
             src.copy(archive_dst)
-            # archive_dst.chown(*openerp_ids)
+            archive_dst.chown(*openerp_ids)
+            archive_dst.chmod(0644)
 
 def next_archive_name(archive_path):
     """

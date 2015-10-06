@@ -520,7 +520,7 @@ def modify(
 @Command()
 def refresh():
     "rewrite permissions file from current settings"
-    write_permissions()
+    SETTINGS.write_permissions()
 
 
 @Command(
@@ -631,14 +631,17 @@ def show(name, all_users, all_files, all_folders):
                     attrs.description,
                     sep='\t', verbose=0)
     if name:
+        found = False
         res = SETTINGS.files.get(name)
         if res is not None:
+            found = True
             print('file:', name,
                     res.share_type, res.permissions_type, res.source, res.frequency,
                     res.read_users, res.write_users, res.description,
                     sep='\t', verbose=0)
         res = SETTINGS.folders.get(name)
         if res is not None:
+            found = True
             print('folder:', name,
                     res.share_type, res.permissions_type,
                     res.read_users, res.write_users, res.create_delete_users,
@@ -646,7 +649,10 @@ def show(name, all_users, all_files, all_folders):
                     sep='\t', verbose=0)
         res = SETTINGS.users.get(name)
         if res is not None:
+            found = True
             print('user:', name, res.level, sep='\t', verbose=0)
+        if not found:
+            print('unable to find', name, verbose=0)
 
 
 @Command(
@@ -905,6 +911,7 @@ class Permissions(object):
             print('reading folders file')
             next(folders, None)
             for line in folders:
+                print('  ->', line)
                 try:
                     line = line.strip()
                     pieces = line.split('\t')
@@ -925,12 +932,14 @@ class Permissions(object):
                     LOGGER.exception('unable to parse fnxfs.folders: %r', line)
         print('inheriting permissions')
         for name in sorted(self.folders.keys()):
-            print('checking %s' % name, verbose=2)
+            print('  checking %s' % name, verbose=2)
             # XXX: possible optimization -- only check previous folder as it should have been set
             #      by the previous iteration
             vals = perms = self.folders[name]
             while perms.permissions_type == 'inherit':
-                perms = self.folders[name.path]
+                print('    ', perms, verbose=2)
+                name = name.path
+                perms = self.folders[name]
             if vals is not perms:
                 vals.read_users = perms.read_users
                 vals.write_users = perms.write_users

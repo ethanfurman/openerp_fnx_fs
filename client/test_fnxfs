@@ -148,6 +148,15 @@ class TestBasicCommands(TestCase):
         for user in ('test_basic_consumer', 'test_basic_creator', 'test_basic_manager'):
             self.assertTrue(users.get(user, None) is None, 'user %s still exists' % (user, ))
 
+    def test_inheriting_permissions(self):
+        run('fnxfs create-folder test_top_level --ptyp custom --ro-users fnxfs_consumer1 --rw-users fnxfs_manager1')
+        run('fnxfs create-folder test_top_level/test_mid_level')
+        run('fnxfs create-folder test_top_level/test_mid_level/test_low_level')
+        self.assertEqual(
+                run('fnxfs show test_top_level/test_mid_level/test_low_level')[0],
+                "folder:\ttest_top_level/test_mid_level/test_low_level\tvirtual\tinherit\t['fnxfs_consumer1']\t['fnxfs_manager1']\t[]\t",
+                )
+
 
 class TestUserPositiveFnxFS(TestCase):
 

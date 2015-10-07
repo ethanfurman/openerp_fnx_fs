@@ -2,17 +2,17 @@
 
 from __future__ import print_function
 from antipathy import Path
-from openerplib import get_connection, get_records, AttrDict
+from VSS.time_machine import PropertyDict as AttrDict
 from random import sample
 from scription import Execute, OrmFile, wait_and_check, Command, Run, print, stderr, abort, user_ids
 from string import ascii_letters
 from time import sleep
+from VSS.utils import get_local_ip
 import errno
 import pwd
 import sys
 import traceback
 import unittest
-
 
 _skip = object()
 def skip(func):
@@ -65,15 +65,15 @@ class TestBasicCommands(TestCase):
 
     def test_file(self):
         run('fnxfs create-folder test_basic_folder1')
-        run('fnxfs create-file %s test_basic_folder1/consumer --ro-users %s' % (Path.getcwd()*__file__, consumer1.login))
-        run('fnxfs create-file %s test_basic_folder1/manager --rw-users %s' % (Path.getcwd()*__file__, manager1.login))
+        run('fnxfs create-file %s test_basic_folder1/consumer --ro-users %s' % (this_file, consumer1.login))
+        run('fnxfs create-file %s test_basic_folder1/manager --rw-users %s' % (this_file, manager1.login))
         results = run('fnxfs show --all-files')
-        expected = "file:\ttest_basic_folder1/consumer\tlive\tcustom\t172.27.11.95:/usr/local/share/python/fnxfs/client/test_fnxfs\t\t['%s']\t[]\t" % consumer1.login
+        expected = "file:\ttest_basic_folder1/consumer\tlive\tcustom\t%s:%s\t\t['%s']\t[]\t" % (server_ip, this_file, consumer1.login)
         self.assertTrue(
                 expected in results,
                 '\n%s\nnot in:\n%s' % (expected, '\n'.join(results)),
                 )
-        expected = "file:\ttest_basic_folder1/manager\tlive\tcustom\t172.27.11.95:/usr/local/share/python/fnxfs/client/test_fnxfs\t\t[]\t['%s']\t" % manager1.login
+        expected = "file:\ttest_basic_folder1/manager\tlive\tcustom\t%s:%s\t\t[]\t['%s']\t" % (server_ip, this_file, manager1.login)
         self.assertTrue(
                 expected in results,
                 '\n%s\nnot in:\n%s' % (expected, '\n'.join(results)),
@@ -86,7 +86,7 @@ class TestBasicCommands(TestCase):
 
     def test_modify(self):
         run('fnxfs create-folder test_modify_folder1')
-        run('fnxfs create-file %s test_modify_folder1/empty' % (Path.getcwd()*__file__, ))
+        run('fnxfs create-file %s test_modify_folder1/empty' % (this_file, ))
         run('fnxfs create-user test_average_joe consumer')
         self.assertEqual(
                 run('fnxfs show test_modify_folder1')[0] ,
@@ -94,7 +94,7 @@ class TestBasicCommands(TestCase):
                 )
         self.assertEqual(
                 run('fnxfs show test_modify_folder1/empty')[0],
-                "file:\ttest_modify_folder1/empty\tlive\tinherit\t172.27.11.95:/usr/local/share/python/fnxfs/client/test_fnxfs\t\t[]\t[]\t",
+                "file:\ttest_modify_folder1/empty\tlive\tinherit\t%s:%s\t\t[]\t[]\t" % (server_ip, this_file),
                 )
         self.assertEqual(
                 run('fnxfs show test_average_joe')[0].split(),
@@ -107,7 +107,7 @@ class TestBasicCommands(TestCase):
                 )
         self.assertEqual(
                 run('fnxfs show test_modify_folder1/empty')[0],
-                "file:\ttest_modify_folder1/empty\tlive\tinherit\t172.27.11.95:/usr/local/share/python/fnxfs/client/test_fnxfs\t\t['test_average_joe']\t[]\t",
+                "file:\ttest_modify_folder1/empty\tlive\tinherit\t%s:%s\t\t['test_average_joe']\t[]\t" % (server_ip, this_file),
                 )
         run('fnxfs modify test_average_joe --level manager')
         self.assertEqual(
@@ -116,7 +116,7 @@ class TestBasicCommands(TestCase):
                 )
         self.assertEqual(
                 run('fnxfs show test_modify_folder1/empty')[0],
-                "file:\ttest_modify_folder1/empty\tlive\tinherit\t172.27.11.95:/usr/local/share/python/fnxfs/client/test_fnxfs\t\t['test_average_joe']\t[]\t",
+                "file:\ttest_modify_folder1/empty\tlive\tinherit\t%s:%s\t\t['test_average_joe']\t[]\t" % (server_ip, this_file),
                 )
         self.assertEqual(
                 run('fnxfs show test_average_joe')[0].split(),
@@ -125,7 +125,7 @@ class TestBasicCommands(TestCase):
         run('fnxfs modify test_modify_folder1/empty --rw_users test_average_joe')
         self.assertEqual(
                 run('fnxfs show test_modify_folder1/empty')[0],
-                "file:\ttest_modify_folder1/empty\tlive\tcustom\t172.27.11.95:/usr/local/share/python/fnxfs/client/test_fnxfs\t\t[]\t['test_average_joe']\t",
+                "file:\ttest_modify_folder1/empty\tlive\tcustom\t%s:%s\t\t[]\t['test_average_joe']\t" % (server_ip, this_file),
                 )
 
     def test_user(self):
@@ -292,18 +292,18 @@ class TestUserNegativeFnxFS(TestCase):
             self.assertFalse(Path('/home/%s/FnxFS/test_virtual3' % consumer2.login).exists())
 
     def test_consumer_no_access_read_fails(self):
-        run('fnxfs create-file %s test_virtual2/consumer2_no_access --ro-users %s' % (Path.getcwd()*__file__, consumer1.login))
+        run('fnxfs create-file %s test_virtual2/consumer2_no_access --ro-users %s' % (this_file, consumer1.login))
         with user_ids(*consumer2.ids):
             self.assertRaises(IOError, Path('/home/%s/FnxFS/test_virtual2/consumer2_no_access' % consumer2.login).open)
 
     def test_consumer_no_access_write_fails1(self):
-        run('fnxfs create-file %s test_virtual2/consumer2_no_write_access --ro-users %s' % (Path.getcwd()*__file__, consumer2.login))
+        run('fnxfs create-file %s test_virtual2/consumer2_no_write_access --ro-users %s' % (this_file, consumer2.login))
         with user_ids(*consumer2.ids):
             self.assertTrue(Path('/home/%s/FnxFS/test_virtual2/consumer2_no_write_access' % consumer2.login).exists())
             self.assertRaises(IOError, Path('/home/%s/FnxFS/test_virtual2/consumer2_no_write_access' % consumer2.login).open, 'w')
         
     def test_consumer_no_access_write_fails2(self):
-        run('fnxfs create-file %s test_virtual3/consumer2_no_write_access --ro-users %s' % (Path.getcwd()*__file__, consumer2.login))
+        run('fnxfs create-file %s test_virtual3/consumer2_no_write_access --ro-users %s' % (this_file, consumer2.login))
         with user_ids(*consumer2.ids):
             self.assertTrue(Path('/home/%s/FnxFS/test_virtual3/consumer2_no_write_access' % consumer2.login).exists())
             self.assertRaises(IOError, Path('/home/%s/FnxFS/test_virtual3/consumer2_no_write_access' % consumer2.login).open, 'w')
@@ -420,21 +420,8 @@ class temp_file(object):
 
 
 config = OrmFile('/usr/local/etc/fnxfs_credentials')
-
-# conn = get_connection(hostname=config.openerp, database=config.database, login='admin', password=config.server_pass)
-# res = AttrDict()
-# res.groups = conn.get_model('res.groups')
-# res.users = conn.get_model('res.users')
-# 
-# fnxfs = AttrDict()
-# [consumer] = get_records(conn, 'ir.model.data', domain=[('module','=','fnx_fs'),('model','=','res.groups'),('name','=','consumer')])
-# [creator] = get_records(conn, 'ir.model.data', domain=[('module','=','fnx_fs'),('model','=','res.groups'),('name','=','creator')])
-# [manager] = get_records(conn, 'ir.model.data', domain=[('module','=','fnx_fs'),('model','=','res.groups'),('name','=','manager')])
-# [fnxfs.consumer] = get_records(res.groups, domain=[('id','=',consumer.res_id)])
-# [fnxfs.creator] = get_records(res.groups, domain=[('id','=',creator.res_id)])
-# [fnxfs.manager] = get_records(res.groups, domain=[('id','=',manager.res_id)])
-# fnxfs.file = conn.get_model('fnx.fs.file')
-# fnxfs.folder = conn.get_model('fnx.fs.folder')
+this_file = Path.getcwd()*__file__
+server_ip = get_local_ip(config.openerp)
 
 folders = []
 files = []
@@ -466,8 +453,6 @@ def setup():
         if not shadow_dir.exists():
             shadow_dir.mkdir(0755)
             shadow_dir.chown(*user.ids)
-        # if not home_FnxFS.exists('FnxFS'):
-        #     shadow_dir.symlink('FnxFS', home_FnxFS)
         print('creating user on server', user.name)
         run('fnxfs create-user %s %s' % (user.login, user.level))
         print('\n'.join(sorted(Path('/home/%s' % user.login).listdir())))
@@ -476,7 +461,7 @@ def setup():
     run('fnxfs create-folder test_virtual1 --ro-users=all --cd-users=fnxfs_consumer1,fnxfs_creator1,fnxfs_manager1')
     run('fnxfs create-folder test_virtual2 --ro-users=all --rw-users=fnxfs_consumer1,fnxfs_creator1,fnxfs_manager1')
     run('fnxfs create-folder test_virtual3 --ro-users=fnxfs_consumer1,fnxfs_creator1,fnxfs_manager1')
-    run('fnxfs create-file %s test_virtual3/ --ro-users fnxfs_consumer1 --rw-users fnxfs_manager1' % (Path.getcwd()*__file__, ))
+    run('fnxfs create-file %s test_virtual3/ --ro-users fnxfs_consumer1 --rw-users fnxfs_manager1' % (this_file, ))
     run('fnxfs sweep --user %s --verbose=%d' % (
         ','.join(user.login for user in (consumer1, consumer2, creator1, creator2, manager1, manager2)),
         script_verbosity,

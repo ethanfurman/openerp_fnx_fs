@@ -116,9 +116,15 @@ def cp(
     "copy file/folder into FnxFS structure, also archiving it"
     os.setuid(0)
     os.setgid(0)
+    # remove leading /var/openerp/fnxfs from dst
+    if dst.startswith(FS_ROOT):
+        dst = dst - FS_ROOT
+    elif dst.startswith(FS_ROOT[1:]):
+        dst = dst - FS_ROOT[1:]
     if not src.isdir():
         if not (FS_ROOT/dst).exists() and not force:
             abort('destination file does not exist (use --force to copy anyway)')
+        print('copying %s to %s' % (src, FS_ROOT/dst))
         copy(src, FS_ROOT/dst, timeout)
         (FS_ROOT/dst).chown(*OPENERP_IDS)
         (FS_ROOT/dst).chmod(0770)
@@ -740,16 +746,19 @@ def archive_needed(src):
 def copy(src, dst, timeout):
     archive_dst = ARCHIVE_ROOT / (dst - FS_ROOT)
     if not archive_dst.exists():
+        print('creating archive folder:', archive_dst, verbose=2)
         archive_dst.makedirs() #owner=openerp_ids)
     if not dst.path.exists():
+        print('creating destination folder:', dst.path, verbose=2)
         dst.path.makedirs() #owner=openerp_ids)
     with PidLockFile(archive_dst/'locked.pid', timeout=timeout):
+        print('copying...', verbose=2)
         src.copy(dst)
         # dst.chown(*openerp_ids)
         if archive_needed(dst):
             archive_dst = next_archive_name(archive_dst)
             src.copy(archive_dst)
-            archive_dst.chown(*openerp_ids)
+            archive_dst.chown(*OPENERP_IDS)
             archive_dst.chmod(0644)
 
 def next_archive_name(archive_path):

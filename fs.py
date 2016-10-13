@@ -1,20 +1,16 @@
-from fnx import check_company_settings, get_user_login, get_user_timezone, DateTime, Time, Date, float, Weekday, PropertyDict
+from fnx import DateTime, Time, Date, float, Weekday
+from fnx.oe import get_user_login, get_user_timezone, PropertyDict
 from fnx.path import Path
-from fnx.utils import xml_quote, xml_unquote
 from openerp import SUPERUSER_ID as SUPERUSER
 from osv.osv import except_osv as ERPError
 from osv import osv, fields
-from pwd import getpwuid
 from pytz import timezone
 from scription import Execute
-from subprocess import check_output, CalledProcessError, STDOUT
-from tempfile import NamedTemporaryFile
+from subprocess import check_output, CalledProcessError
 import errno
 import logging
 import os
 import pwd
-import re
-import shutil
 import socket
 import threading
 import time
@@ -119,7 +115,7 @@ def _user_level(obj, cr, uid, context=None):
     elif user.has_group('fnx_fs.consumer'):
         return 'consumer'
     else:
-        raise ERPError('Programming Error', 'Cannot find FnxFS group in %r' % groups)
+        raise ERPError('Programming Error', 'Cannot find FnxFS group for %r' % user.login)
 
 def write_mount(oe, cr):
     return
@@ -160,12 +156,12 @@ def write_permissions(oe, cr):
     # tony:read:/IT/ip_address.txt
     # all:read:/IT/uh-oh.txt
     # all:read:/IT/Printers/FAQ.pdf
-    # 
+    #
     fnxfs_folder = oe.pool.get('fnx.fs.folder')
     fnxfs_file = oe.pool.get('fnx.fs.file')
     res_users = oe.pool.get('res.users')
     with permissions_lock:
-        ids = []
+        # ids = []
         mode = 'w'
         folders = fnxfs_folder.browse(cr, SUPERUSER)
         files = fnxfs_file.browse(cr, SUPERUSER)
@@ -252,7 +248,7 @@ class fnx_fs_folder(osv.Model):
         return res
 
     def _get_default_folder_type(self, cr, uid, context=None):
-        if self.pool.get('res.users').has_group(cr, uid, 'fnx_fs.creator'):
+        if self.pool.get('res.users').has_group(cr, uid, 'fnx_fs.creator', context=context):
             return 'virtual'
         else:
             return 'shared'
@@ -279,7 +275,7 @@ class fnx_fs_folder(osv.Model):
         if uid == SUPERUSER:
             raise ERPError('Not Implemented', 'Only normal users can create user shares')
         uid = context.get('uid')
-        user = self.pool.get('res.users').browse(cr, SUPERUSER, uid).login
+        user = self.pool.get('res.users').browse(cr, SUPERUSER, uid, context=context).login
         try:
             path = _remote_locate(user, file_name, context=context)
         except Exception, exc:
@@ -321,7 +317,7 @@ class fnx_fs_folder(osv.Model):
             'fnx.fs.folder',
             'Parent Folder',
             ondelete='restrict',
-            domain="[('folder_type','=','virtual')]"            
+            domain="[('folder_type','=','virtual')]"
             ),
         'child_ids': fields.one2many(
             'fnx.fs.folder',
@@ -432,8 +428,8 @@ class fnx_fs_folder(osv.Model):
         for share_name in share_names:
             share_cmd = ['/usr/local/bin/fnxfs', 'shares', 'start', share_name]
             try:
-                output = check_output(share_cmd)
-            except Exception, exc:
+                check_output(share_cmd)
+            except Exception:
                 _logger.exception('Unable to start share: %s', share_name)
                 return False
         return True
@@ -671,13 +667,13 @@ class fnx_fs_file(osv.Model):
                                 microsecond=scheduled.microsecond,
                                 )
             self.write(cr, uid, [rec.id], {'schedule_date':next_date}, context=context)
-        return True        
+        return True
 
     def _calc_scheduled_at(self, cr, uid, ids, _field=None, _arg=None, context=None):
         if isinstance(ids, (int, long)):
             ids = [ids]
         res = {}
-        user_tz = timezone(get_user_timezone(self, cr, uid)[uid])
+        user_tz = timezone(get_user_timezone(self, cr, uid, context=context)[uid])
         records = self.browse(cr, uid, ids, context=context)
         for rec in records:
             res[rec.id] = False
@@ -707,7 +703,7 @@ class fnx_fs_file(osv.Model):
             else:
                 file_path = Path(file_path)
                 values['file_name'] = values.get('file_name', file_path.filename)
-            user = get_user_login(self, cr, SUPERUSER, owner_id)
+            user = get_user_login(self, cr, SUPERUSER, owner_id, context=context)
             folder = fnx_fs_folder.browse(cr, uid, folder_id, context=context).path
             new_env = os.environ.copy()
             new_env['SSHPASS'] = server_root
@@ -736,7 +732,7 @@ class fnx_fs_file(osv.Model):
                     fs_root/folder/shared_as,
                     ]
             try:
-                output = check_output(copy_cmd, env=new_env)
+                check_output(copy_cmd, env=new_env)
             except CalledProcessError, exc:
                 raise ERPError('Error','Unable to retrieve file.\n\n%s\n\n%s' % (exc, exc.output))
             try:
@@ -745,7 +741,7 @@ class fnx_fs_file(osv.Model):
                 pass
             archive_cmd = ['/usr/local/bin/fnxfs', 'archive', fs_root/folder/shared_as]
             try:
-                output = check_output(archive_cmd, env=new_env)
+                check_output(archive_cmd, env=new_env)
             except Exception, exc:
                 raise ERPError('Error','Unable to archive file:\n\n%s' % (exc, ))
 
@@ -857,7 +853,7 @@ class fnx_fs_file(osv.Model):
     def create(self, cr, uid, values, context=None):
         folders = self.pool.get('fnx.fs.folder')
         if isinstance(values['folder_id'], basestring):
-            target = folders.browse(self, cr, SUPERUSER, [('full_path','=',values['folder_id'])])
+            target = folders.browse(self, cr, SUPERUSER, [('full_path','=',values['folder_id'])], context=context)
             if not target:
                 raise ERPError('Folder Missing', 'folder %r does not exist' % values['folder_id'])
             folder = target[0]
@@ -865,7 +861,7 @@ class fnx_fs_file(osv.Model):
             folder = folders.browse(cr, SUPERUSER, values['folder_id'], context=context)
         if folder.folder_type != 'virtual':
             raise ERPError('Invalid Folder', 'files can only be saved into Virtual folders')
-        elif _user_level(self, cr, uid, context=contex) != 'manager' and _folder_access(self, cr, uid, folder) != 3:
+        elif _user_level(self, cr, uid, context=context) != 'manager' and _folder_access(self, cr, uid, folder) != 3:
             raise ERPError('Permission Denied', 'no create access to folder')
         vals = PropertyDict(values)
         if vals.perm_type == 'inherit':
@@ -888,7 +884,7 @@ class fnx_fs_file(osv.Model):
                 raise ERPError('Error', 'Shared name should have an extension indicating file type.')
         new_id = super(fnx_fs_file, self).create(cr, SUPERUSER, dict(vals), context=context)
         write_permissions(self, cr)
-        current = self.browse(cr, SUPERUSER, new_id)
+        current = self.browse(cr, SUPERUSER, new_id, context=context)
         if vals.file_type == 'normal' and not vals.file_name:
             open(fs_root/current.folder_id.path/current.shared_as, 'w').close()
         return new_id
@@ -961,7 +957,7 @@ class fnx_fs_file(osv.Model):
 
 class res_users(osv.Model):
     _inherit = 'res.users'
-    
+
     def unlink(self, cr, uid, ids, context=None):
         result = super(res_users, self).unlink(cr, uid, ids, context=context)
         if ids:

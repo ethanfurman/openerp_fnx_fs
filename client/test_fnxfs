@@ -31,7 +31,7 @@ class TestCase(unittest.TestCase):
 
 
 # class TestTools(TestCase):
-# 
+#
 #     def test_temp_file(self):
 #         with temp_file(consumer1, '/home/%(login)s/some_file.txt', content='%(name)s is the best!', share='_%(login)s') as tf:
 #             values = {
@@ -301,7 +301,7 @@ class TestUserNegativeFnxFS(TestCase):
         with user_ids(*consumer2.ids):
             self.assertTrue(Path('/home/%s/FnxFS/test_virtual2/consumer2_no_write_access' % consumer2.login).exists())
             self.assertRaises(IOError, Path('/home/%s/FnxFS/test_virtual2/consumer2_no_write_access' % consumer2.login).open, 'w')
-        
+
     def test_consumer_no_access_write_fails2(self):
         run('fnxfs create-file %s test_virtual3/consumer2_no_write_access --ro-users %s' % (this_file, consumer2.login))
         with user_ids(*consumer2.ids):
@@ -447,7 +447,7 @@ def setup():
     for user in (consumer1, consumer2, creator1, creator2, manager1, manager2):
         print('creating user in local system', user.name)
         Execute('useradd -m %s' % user.login)
-        user.ids = tuple(pwd.getpwnam(user.login)[2:4])        
+        user.ids = tuple(pwd.getpwnam(user.login)[2:4])
         home_FnxFS = Path('/home/%s/FnxFS' % user.login)
         shadow_dir = Path('/home/.shadow/%s' % user.login)
         if not shadow_dir.exists():

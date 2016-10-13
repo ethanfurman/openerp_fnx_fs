@@ -214,7 +214,7 @@ class TestLocalFS(TestCase):
 
     def tearDown(self):
         # make sure we're root
-        os.setreuid(actual_user_id, 0) 
+        os.setreuid(actual_user_id, 0)
         for subdir in local.listdir():
             local.rmtree(subdir)
 
@@ -951,7 +951,7 @@ class TestRemoteFS(TestCase):
 
     def tearDown(self):
         # make sure we're root
-        os.setreuid(actual_user_id, 0) 
+        os.setreuid(actual_user_id, 0)
         for subdir in remote.listdir():
             remote.rmtree(subdir)
         for subdir in local.listdir():
@@ -1951,7 +1951,7 @@ def create_dirs():
             '--shares_file', shares_file,
             '--pid_file', Path.getcwd()/'fnxfsd.pid',
             '--port', str(tcp_port),
-            '--testing', 
+            '--testing',
             ]
     if generate_log:
         command.append('--verbose')
@@ -2031,7 +2031,7 @@ def remove_dirs():
     for file in (perm_file, shares_file, test_conf, Path('fnxfsd.pid')):
         if file.exists():
             file.remove()
-    
+
 
 if __name__ == '__main__':
     Run()

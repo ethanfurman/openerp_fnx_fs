@@ -104,7 +104,7 @@ def recover(test_path=test_location):
     test_path.copy('*fnxfsd', source)
     source.chmod(0o660, '*fnxfsd')
     source.chown(owner, owner, '*fnxfsd')
-    
+
 
 if __name__ == '__main__':
     Run()

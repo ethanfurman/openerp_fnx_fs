@@ -5,7 +5,7 @@ from openerp import SUPERUSER_ID as SUPERUSER
 from osv.osv import except_osv as ERPError
 from osv import osv, fields
 from pytz import timezone
-from scription import Execute
+from scription import Execute, OrmFile
 from subprocess import check_output, CalledProcessError
 import errno
 import logging
@@ -26,7 +26,7 @@ archive_root = Path(u'/var/openerp/fnxfs_archive/')
 permissions_file = Path(u'/var/openerp/fnxfs.permissions')
 mount_file = Path(u'/etc/openerp/fnxfs.mount')
 
-execfile('/etc/openerp/fnxfs_credentials')
+config = OrmFile('/etc/openerp/fnx.ini', section='fnxfsd')
 
 PERMISSIONS_TYPE = (
     ('inherit', 'Inherited from parent folder'),
@@ -706,7 +706,7 @@ class fnx_fs_file(osv.Model):
             user = get_user_login(self, cr, SUPERUSER, owner_id, context=context)
             folder = fnx_fs_folder.browse(cr, uid, folder_id, context=context).path
             new_env = os.environ.copy()
-            new_env['SSHPASS'] = server_root
+            new_env['SSHPASS'] = config.server_root
             if file_path is None:
                 uid = context.get('uid')
                 # res_users = self.pool.get('res.users')
@@ -963,6 +963,3 @@ class res_users(osv.Model):
         if ids:
             write_permissions(self, cr)
         return result
-
-
-# vim:expandtab:smartindent:tabstop=4:softtabstop=4:shiftwidth=4:

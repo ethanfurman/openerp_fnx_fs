@@ -3,6 +3,7 @@ from __future__ import print_function
 import pandaemonium
 from collections import defaultdict
 from dbf import DateTime
+from filecmp import cmp as equal_files
 from getpass import getpass
 from pandaemonium import Daemon, PidLockFile, FileTracker, STDOUT, STDERR
 from antipathy import Path
@@ -31,6 +32,15 @@ if AS_USER == 'root':
     AS_ROOT = True
     AS_USER = None
 
+FS_ROOT = Path('/var/openerp/fnxfs')
+ARCHIVE_ROOT = Path('/var/openerp/fnxfs_archive')
+FNXFS_MOUNT = Path('/var/openerp/fnxfs.mount')
+USERS = Path('/var/openerp/fnxfs.users')
+FILES = Path('/var/openerp/fnxfs.files')
+FOLDERS = Path('/var/openerp/fnxfs.folders')
+PERMISSIONS = Path('/var/openerp/fnxfs.permissions')
+
+OPENERP_IDS = getpwnam('openerp')[2:4]
 
 
 @Script()
@@ -336,6 +346,30 @@ def create_user(login, level):
     SETTINGS.users[login] = AttrDict(level=level)
     SETTINGS.write_users()
     SETTINGS.write_permissions()
+
+
+@Command(
+        target=Spec('directory to check', REQUIRED, default=ARCHIVE_ROOT),
+        )
+def dedupe_archive(target):
+    "remove duplicates from fnxfs_archive"
+    for path, dirs, files in target.walk():
+        if len(files) > 1:
+            files.sort()
+            main = path/files[0]
+            main_size = main.stat().st_size
+            for dupe in files[1:]:
+                dupe = path/dupe
+                dupe_size = dupe.stat().st_size
+                if main_size == dupe_size and equal_files(main, dupe):
+                    # it's a duplicate, delete it
+                    dupe.unlink()
+                else:
+                    # it's distinct from the last file, make it the new baseline
+                    # n.b. it's possible to still have duplicates if changes are done/undone
+                    #   A B A C A ...
+                    main = dupe
+                    main_size = dupe_size
 
 
 @Command(
@@ -739,9 +773,13 @@ def archive_needed(src):
         arc = sorted(archive.glob('/*'))[-1]
     except IndexError:
         return True
-    src_meta = src.stat()[6:9]
-    arc_meta = arc.stat()[6:9]
-    return src_meta != arc_meta
+    src_size = src.stat().st_size
+    arc_size = arc.stat().st_size
+    if src_size == arc_size:
+        # same size, check contents
+        if equal_files(src, arc):
+            return False
+    return True
 
 def copy(src, dst, timeout):
     archive_dst = ARCHIVE_ROOT / (dst - FS_ROOT)
@@ -1080,16 +1118,6 @@ class Permissions(object):
 
 # try umount for ssh
 stop_sshfs = stop_smb
-
-FS_ROOT = Path('/var/openerp/fnxfs')
-ARCHIVE_ROOT = Path('/var/openerp/fnxfs_archive')
-FNXFS_MOUNT = Path('/var/openerp/fnxfs.mount')
-USERS = Path('/var/openerp/fnxfs.users')
-FILES = Path('/var/openerp/fnxfs.files')
-FOLDERS = Path('/var/openerp/fnxfs.folders')
-PERMISSIONS = Path('/var/openerp/fnxfs.permissions')
-
-OPENERP_IDS = getpwnam('openerp')[2:4]
 
 SSHFS_OPTIONS = [
         '-o','allow_other',

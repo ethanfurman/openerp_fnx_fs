@@ -22,7 +22,7 @@ install-client:
 	chmod 760 /usr/local/sbin/fnxfsd
 
 uninstall:
-	-rm /usr/local/bin/fnxfs
-	-rm /usr/local/sbin/fnxfs
-	-rm /usr/local/sbin/fnxfsd
+	-rm /usr/local/bin/fnxfs 2> /dev/null || true
+	-rm /usr/local/sbin/fnxfs 2> /dev/null || true
+	-rm /usr/local/sbin/fnxfsd 2> /dev/null || true
 	

@@ -12,14 +12,14 @@ install: help
 install-server:
 	cp server/fnxfs /usr/local/sbin/fnxfs
 	chown root: /usr/local/sbin/fnxfs
-	chmod 6775 /usr/local/sbin/fnxfs
+	chmod 6755 /usr/local/sbin/fnxfs
 
 install-client:
 	cp client/fnxfs /usr/local/bin/fnxfs
 	cp client/fnxfsd /usr/local/sbin/fnxfsd
 	chown root: /usr/local/bin/fnxfs /usr/local/sbin/fnxfsd
 	chmod 755 /usr/local/bin/fnxfs
-	chmod 760 /usr/local/sbin/fnxfsd
+	chmod 740 /usr/local/sbin/fnxfsd
 
 uninstall:
 	-rm /usr/local/bin/fnxfs 2> /dev/null || true

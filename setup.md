@@ -9,8 +9,8 @@ The server needs to have the server fnxfs script and suid-python binary
 installed, and the tree created for storing the shared files and the
 archive of the shared files::
 
-  - /usr/local/bin/suid-python
-  - /usr/local/bin/fnxfs
+  - /usr/local/sbin/suid-python
+  - /usr/local/sbin/fnxfs
 
   - /var/openerp
   - /var/openerp/fnxfs (mode: 6755)
@@ -35,7 +35,7 @@ Similarly to the server, the client also needs the suid-python binary
 installed, along with the client fnxfs script, the fnxfsd script, and
 the startup fnxfsd.py script (along with a symlink to it)::
 
-  - /usr/local/bin/suid-python
+  - /usr/local/sbin/suid-python
   - /usr/local/bin/fnxfs (mode: 6755)
   - /usrlocal/sbin/fnxfsd
   - /usr/local/etc/init.d/fnxfsd.py

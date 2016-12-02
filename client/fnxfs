@@ -1,4 +1,4 @@
-#!/usr/local/bin/suid-python
+#!/usr/local/sbin/suid-python
 """
 This tool interacts with the FnxFS system to share files and folders with other
 users.
@@ -194,7 +194,7 @@ def delete_user(login):
         level=Spec('new privilege level for user (for users)', OPTION, choices=['consumer', 'creator', 'manager']),
         ro_users=('new list of read-only users (for files/folders)', MULTI, 'r'),
         rw_users=('new list of read-write users (for files/folders)', MULTI, 'w'),
-        cd_users=('new list of read-write-create users (for folders', MULTI, 'c'), 
+        cd_users=('new list of read-write-create users (for folders', MULTI, 'c'),
         del_user=('users whose access to remove (for files/folders)', MULTI),
         add_read_user=('users to add as read-only (for files/folders)', MULTI, None),
         add_write_user=('users to add as read-write (for files/folders)', MULTI, None),

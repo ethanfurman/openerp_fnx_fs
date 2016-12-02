@@ -1,4 +1,4 @@
-#!/usr/local/bin/suid-python
+#!/usr/local/sbin/suid-python
 from dbf import DateTime
 from getpass import getpass
 from path import Path

@@ -1,4 +1,4 @@
-#!/usr/local/bin/suid-python
+#!/usr/local/sbin/suid-python
 from __future__ import print_function
 import pandaemonium
 from collections import defaultdict

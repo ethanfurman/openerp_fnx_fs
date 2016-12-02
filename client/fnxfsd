@@ -1,4 +1,4 @@
-#!/usr/local/bin/suid-python
+#!/usr/local/sbin/suid-python
 from __future__ import print_function
 
 # this must happen first!
@@ -491,7 +491,7 @@ class FnxFS(object):
         RequestHandler.file_cache = self.seen_files
         RequestHandler.permissions = self._file_permissions
         RequestHandler.folders = self._folders
-  
+
     def _connect(self):
         now = time()
         if now - self._last_attempt < 90:

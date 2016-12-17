@@ -1,6 +1,8 @@
-from fnx import DateTime, Time, Date, float, Weekday
-from fnx.oe import get_user_login, get_user_timezone, PropertyDict
-from fnx.path import Path
+from antipathy import Path
+from dbf import DateTime, Time, Date
+from VSS.utils import  float
+from VSS.constants import Weekday
+from fnx.oe import get_user_login, get_user_timezone, AttrDict
 from openerp import SUPERUSER_ID as SUPERUSER
 from osv.osv import except_osv as ERPError
 from osv import osv, fields
@@ -863,7 +865,7 @@ class fnx_fs_file(osv.Model):
             raise ERPError('Invalid Folder', 'files can only be saved into Virtual folders')
         elif _user_level(self, cr, uid, context=context) != 'manager' and _folder_access(self, cr, uid, folder) != 3:
             raise ERPError('Permission Denied', 'no create access to folder')
-        vals = PropertyDict(values)
+        vals = AttrDict(values)
         if vals.perm_type == 'inherit':
             vals.pop('readonly_ids', None)
             vals.readwrite_ids = [uid]

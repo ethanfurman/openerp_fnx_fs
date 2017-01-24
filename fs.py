@@ -4,7 +4,7 @@ from VSS.utils import  float
 from VSS.constants import Weekday
 from fnx.oe import get_user_login, get_user_timezone, AttrDict
 from openerp import SUPERUSER_ID as SUPERUSER
-from osv.osv import except_osv as ERPError
+from openerp.exceptions import ERPError
 from osv import osv, fields
 from pytz import timezone
 from scription import Execute, OrmFile

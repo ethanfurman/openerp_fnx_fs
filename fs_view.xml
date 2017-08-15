@@ -172,11 +172,11 @@
                     <field name="category" string="Function" filter_domain="[(1,'=',1)]"/>
                     <field name="status" string="Status" filter_domain="[(1,'=',1)]"/>
                     <field name="feedback" string="Communicated" filter_domain="[(1,'=',1)]"/>
-                    -->
                     <filter string="My Files" domain="[]" context="[('user_id','=',uid)]"/>
                     <separator/>
                     <filter string="Shared By" domain="[]" context="[(1,'=',1)]"/>
                     <filter string="Location" domain="[]" context="[(1,'=',1)]"/>
+                    -->
                     <group expand="0" string="Group By...">
                         <filter string="Folder" domain="[]" context="{'group_by':'folder_id'}"/>
                         <filter string="Shared By" domain="[]" context="{'group_by':'user_id'}"/>

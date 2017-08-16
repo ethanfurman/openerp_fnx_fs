@@ -31,14 +31,14 @@ if AS_USER == 'root':
     AS_ROOT = True
     AS_USER = None
 
-
+BASE_DIR = os.path.split(os.path.split((__file__))[0])[0]
 
 @Script()
 def main():
     print('running as', AS_USER or 'root')
     print('entering main()')
     global CLIENT_IP, LOGGER, CONFIG
-    CONFIG = OrmFile('/etc/openerp/fnx.ini', section='fnxfsd')
+    CONFIG = OrmFile('%s/config/fnx.ini' % BASE_DIR, section='fnxfsd')
     log_file = Path('/var/log/openerp/fnxfs.log')
     fnxfs_lock = PidLockFile('/var/run/fnxfs.pid', timeout=60)
     with open(log_file, 'a') as logger:

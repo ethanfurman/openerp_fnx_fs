@@ -6,6 +6,7 @@ from dbf import DateTime
 from getpass import getpass
 from pandaemonium import Daemon, PidLockFile, FileTracker, STDOUT, STDERR
 from antipathy import Path
+from openerp import BASE_DIR
 from openerplib import AttrDict
 from pandaemonium import PidLockFile
 from pwd import getpwuid, getpwnam
@@ -31,7 +32,6 @@ if AS_USER == 'root':
     AS_ROOT = True
     AS_USER = None
 
-BASE_DIR = os.path.split(os.path.split((__file__))[0])[0]
 
 @Script()
 def main():

@@ -6,7 +6,7 @@ from dbf import DateTime
 from getpass import getpass
 from pandaemonium import Daemon, PidLockFile, FileTracker, STDOUT, STDERR
 from antipathy import Path
-from openerp import BASE_DIR
+from openerp import CONFIG_DIR
 from openerplib import AttrDict
 from pandaemonium import PidLockFile
 from pwd import getpwuid, getpwnam
@@ -38,7 +38,7 @@ def main():
     print('running as', AS_USER or 'root')
     print('entering main()')
     global CLIENT_IP, LOGGER, CONFIG
-    CONFIG = OrmFile('%s/config/fnx.ini' % BASE_DIR, section='fnxfsd')
+    CONFIG = OrmFile('%s/fnx.ini' % CONFIG_DIR, section='fnxfsd')
     log_file = Path('/var/log/openerp/fnxfs.log')
     fnxfs_lock = PidLockFile('/var/run/fnxfs.pid', timeout=60)
     with open(log_file, 'a') as logger:

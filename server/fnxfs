@@ -110,16 +110,19 @@ def archive(src):
         dst=('where to put it (and possibly new name)', REQUIRED, 'd', Path),
         timeout=('how long to wait for lock', OPTION, 't', int),
         force=('make copy even if no record of file exists in OpenERP', FLAG),
+        max_copies=('how many archival copies to keep', OPTION, int),
         )
 def cp(
         src,
         dst,
         timeout=10,
-        force=False
+        force=False,
+        max_copies=0,
         ):
     "copy file/folder into FnxFS structure, also archiving it"
     os.setuid(0)
     os.setgid(0)
+    archive_dsts = []
     # remove leading /var/openerp/fnxfs from dst
     if dst.startswith(FS_ROOT):
         dst = dst - FS_ROOT
@@ -129,7 +132,8 @@ def cp(
         if not (FS_ROOT/dst).exists() and not force:
             abort('destination file does not exist (use --force to copy anyway)')
         print('cp: copying %r to %r' % (src, FS_ROOT/dst))
-        copy(src, FS_ROOT/dst, timeout)
+        archive = copy(src, FS_ROOT/dst, timeout)
+        archive_dsts.append(archive)
         (FS_ROOT/dst).chown(*OPENERP_IDS)
         (FS_ROOT/dst).chmod(0770)
     else:
@@ -153,6 +157,13 @@ def cp(
                 new_fn = ''.join([ch for ch in new_fn if ord(ch) < 128])
                 new_fn = fn.path / new_fn
                 copy(dirpath/fn, FS_ROOT/dst/dirpath/new_fn, timeout)
+                archive = copy(src, FS_ROOT/dst, timeout)
+                archive_dsts.append(archive)
+    if max_copies > 0:
+        for archive_dst in archive_dsts:
+            files = sorted(archive_dst.listdir())
+            for file in files[:-max_copies]:
+                file.unlink()
 
 
 @Command(
@@ -800,6 +811,7 @@ def copy(src, dst, timeout):
             src.copy(archive_dst)
             archive_dst.chown(*OPENERP_IDS)
             archive_dst.chmod(0644)
+    return archive_dst
 
 def next_archive_name(archive_path):
     """

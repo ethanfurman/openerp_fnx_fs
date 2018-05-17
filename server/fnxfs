@@ -1,23 +1,17 @@
-#!/usr/local/sbin/suid-python --virtualenv
+#!/usr/local/sbin/suid-python
 from __future__ import print_function
-import pandaemonium
 from collections import defaultdict
 from dbf import DateTime
 from filecmp import cmp as equal_files
-from getpass import getpass
-from pandaemonium import Daemon, PidLockFile, FileTracker, STDOUT, STDERR
+from pandaemonium import PidLockFile, FileTracker, STDOUT
 from antipathy import Path
 from openerplib import AttrDict
-from pandaemonium import PidLockFile
 from pwd import getpwuid, getpwnam
 from scription import *
-from subprocess import Popen, PIPE, STDOUT
+from subprocess import Popen, PIPE
 import commands
-import errno
 import logging
 import os
-import pwd
-import sys
 import time
 
 FileTracker.install()
@@ -48,10 +42,10 @@ def main():
     print('running as', AS_USER or 'root')
     print('entering main()')
     global CLIENT_IP, LOGGER, CONFIG
-    CONFIG = OrmFile('%s/config/fnx.ini' % os.environ['VIRTUAL_ENV'], section='fnxfsd')
+    CONFIG = OrmFile('/etc/openerp/fnx.ini', section='fnxfsd')
     log_file = Path('/var/log/openerp/fnxfs.log')
     fnxfs_lock = PidLockFile('/var/run/fnxfs.pid', timeout=60)
-    with open(log_file, 'a') as logger:
+    with open(log_file, 'a'):
         pass
     LOGGER = logging.getLogger()
     LOGGER.setLevel(logging.DEBUG)
@@ -89,7 +83,7 @@ def archive(src):
     "copy existing FnxFS file into the archive"
     if not src.exists():
         abort('source file does not exist')
-    if archive_needed(src):
+    if copy_needed(src):
         archive_dst = ARCHIVE_ROOT / (src - FS_ROOT)
         if not archive_dst.exists():
             archive_dst.makedirs() #owner=openerp_ids)
@@ -134,7 +128,7 @@ def cp(
     if not src.isdir():
         if not (FS_ROOT/dst).exists() and not force:
             abort('destination file does not exist (use --force to copy anyway)')
-        print('copying %s to %s' % (src, FS_ROOT/dst))
+        print('cp: copying %r to %r' % (src, FS_ROOT/dst))
         copy(src, FS_ROOT/dst, timeout)
         (FS_ROOT/dst).chown(*OPENERP_IDS)
         (FS_ROOT/dst).chmod(0770)
@@ -227,7 +221,7 @@ def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, as_user):
             if SETTINGS.users[user].level not in ('creator', 'manager'):
                 abort('invalid folder: files must be shared in a virtual folder')
         elif SETTINGS.folders[dst.path].share_type != 'virtual':
-            abourt('invalid folder: files must be shared in a virtual folder')
+            abort('invalid folder: files must be shared in a virtual folder')
         elif user not in SETTINGS.folders[dst.path].create_delete_users:
             abort('permission denied')
     # okay, let's do this!
@@ -513,14 +507,12 @@ def modify(
         SETTINGS.write_permissions()
         return
     elif name in SETTINGS.files:
-        type = 'file'
         settings = SETTINGS.files[name]
         if cd_users:
             help('create-users is only for folders, not files')
         if add_create_user:
             help('add-create-user is only for folders, not files')
     elif name in SETTINGS.folders:
-        type = 'folder'
         settings = SETTINGS.folders[name]
     else:
         abort('<%s> not found' % name)
@@ -762,38 +754,48 @@ def tree(path, include_files, _prefix='', _files=defaultdict(list), _pool={}):
             tree(current/last_dir, include_files, _prefix=_prefix+'   ')
         dirs[:] = []
 
-
-def archive_needed(src):
+def copy_needed(src, dst=None):
     """
     return True if the metadata on src differs from the latest archive version's
     """
     # use st_size, st_atime, st_mtime
-    archive = ARCHIVE_ROOT / (src - FS_ROOT)
-    try:
-        arc = sorted(archive.glob('/*'))[-1]
-    except IndexError:
-        return True
+    if dst is not None:
+        arc = dst
+    else:
+        archive = ARCHIVE_ROOT / (src - FS_ROOT)
+        try:
+            arc = sorted(archive.glob('/*'))[-1]
+        except IndexError:
+            return True
+    print('copy_needed:  arc = %r' % arc)
     src_size = src.stat().st_size
     arc_size = arc.stat().st_size
     if src_size == arc_size:
         # same size, check contents
         if equal_files(src, arc):
+            print('copy_needed:  files are the same')
             return False
+    print('copy_needed:  files are different')
     return True
 
 def copy(src, dst, timeout):
+    """
+    copies src to dst iif they are different; likewise with dst and archive
+    """
     archive_dst = ARCHIVE_ROOT / (dst - FS_ROOT)
     if not archive_dst.exists():
-        print('creating archive folder:', archive_dst, verbose=2)
+        print('copy:  creating archive folder:', archive_dst, verbose=2)
         archive_dst.makedirs() #owner=openerp_ids)
     if not dst.path.exists():
-        print('creating destination folder:', dst.path, verbose=2)
+        print('copy:  creating destination folder:', dst.path, verbose=2)
         dst.path.makedirs() #owner=openerp_ids)
-    with PidLockFile(archive_dst/'locked.pid', timeout=timeout):
-        print('copying...', verbose=2)
-        src.copy(dst)
+    with PidLockFile(archive_dst/'../locked.pid', timeout=timeout):
+        if copy_needed(src, dst):
+            print('copy:  copying...', verbose=2)
+            src.copy(dst)
         # dst.chown(*openerp_ids)
-        if archive_needed(dst):
+        if copy_needed(dst):
+            print('copy:  archiving...', verbose=2)
             archive_dst = next_archive_name(archive_dst)
             src.copy(archive_dst)
             archive_dst.chown(*OPENERP_IDS)
@@ -895,16 +897,16 @@ def stop_smb(mount):
     open('/var/log/fnxfs_debug','a+').write('/bin/umount "%s"\n' % mount)
     return output
 
-def stop_sshfs(mount):
-    """
-    unmounts an sshfs share and stop sshfs process
-    """
-    command = ['/usr/local/bin/fusermount', '-u', mount]
-    output = Execute(command)
-    result = ''
-    if output.stdout:
-        result += output.stdout
-    return result
+# def stop_sshfs(mount):
+#     """
+#     unmounts an sshfs share and stop sshfs process
+#     """
+#     command = ['/usr/local/bin/fusermount', '-u', mount]
+#     output = Execute(command)
+#     result = ''
+#     if output.stdout:
+#         result += output.stdout
+#     return result
 
 
 # SETTINGS = AttrDict(files=AttrDict(), folders=AttrDict(), users=AttrDict())

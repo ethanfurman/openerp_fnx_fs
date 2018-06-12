@@ -12,6 +12,7 @@ from subprocess import Popen, PIPE
 import commands
 import logging
 import os
+import sys
 import time
 
 FileTracker.install()
@@ -42,7 +43,7 @@ def main():
     print('running as', AS_USER or 'root')
     print('entering main()')
     global CLIENT_IP, LOGGER, CONFIG
-    CONFIG = OrmFile('/etc/openerp/fnx.ini', section='fnxfsd')
+    CONFIG = OrmFile('%s/config/fnx.ini' % os.environ['VIRTUAL_ENV'], section='fnxfsd')
     log_file = Path('/var/log/openerp/fnxfs.log')
     fnxfs_lock = PidLockFile('/var/run/fnxfs.pid', timeout=60)
     with open(log_file, 'a'):
@@ -358,6 +359,7 @@ def create_user(login, level):
         )
 def dedupe_archive(target):
     "remove duplicates from fnxfs_archive"
+    count = 0
     for path, dirs, files in target.walk():
         if len(files) > 1:
             files.sort()
@@ -368,13 +370,19 @@ def dedupe_archive(target):
                 dupe_size = dupe.stat().st_size
                 if main_size == dupe_size and equal_files(main, dupe):
                     # it's a duplicate, delete it
-                    dupe.unlink()
+                    try:
+                        dupe.unlink()
+                        count += 1
+                    except Exception:
+                        cls, exc, tb = sys.exc_info()
+                        error('%s --> %s' % (dupe, exc))
                 else:
                     # it's distinct from the last file, make it the new baseline
                     # n.b. it's possible to still have duplicates if changes are done/undone
                     #   A B A C A ...
                     main = dupe
                     main_size = dupe_size
+    echo('%d duplicates removed' % count)
 
 
 @Command(

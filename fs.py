@@ -1028,7 +1028,7 @@ class fnx_fs(osv.AbstractModel):
             for id, folder in records.items():
                 folder = folder.replace('/', '%2f')
                 try:
-                    base_path.unlink(folder)
+                    base_path.rmtree(folder)
                 except Exception:
                     _logger.exception('failure deleting %s/%s' % (base_path, folder))
 

@@ -9,6 +9,7 @@ from osv import osv, fields
 from pytz import timezone
 from scription import Execute, OrmFile
 from subprocess import check_output, CalledProcessError
+from xaml import Xaml
 import errno
 import logging
 import os
@@ -965,3 +966,86 @@ class res_users(osv.Model):
         if ids:
             write_permissions(self, cr)
         return result
+
+
+class fnx_fs(osv.AbstractModel):
+    _name = 'fnx_fs.fs'
+
+    _fnxfs_path = ''
+
+    def _auto_init(self, cr, context=None):
+        super(fnx_fs, self)._auto_init(cr, context)
+        if not fs_root.exists(self._fnxfs_path):
+            fs_root.makedirs(self._fnxfs_path)
+
+    def _fnxfs_files(self, cr, uid, ids, name, args, context=None):
+        if isinstance(ids, (int, long)):
+            ids = [ids]
+        res = {}
+        if not ids:
+            return res
+        ir_config_parameter = self.pool.get('ir.config_parameter')
+        website = ir_config_parameter.browse(cr, uid, [('key','=','web.base.url')], context=context)[0]
+        website = website.value + '/fnxfs/download'
+        template = Xaml(file_list).document.pages[0]
+        base_path = fs_root / self._fnxfs_path
+        for id, folder in self.fnxfs_folder_name(cr, uid, ids, context=context).items():
+            res[id] = False
+            folder = folder.replace('/', '%2f')
+            if not base_path.exists(folder):
+                # create missing folder
+                _logger.warning('%r missing, creating', (base_path/folder))
+                base_path.mkdir(folder)
+            files = sorted((base_path/folder).listdir())
+            if files:
+                res[id] = template.string(root=website, path=self._fnxfs_path, folder=folder, files=files)
+        return res
+
+    _columns = {
+        'fnxfs_files': fields.function(
+                _fnxfs_files,
+                string='Available Files',
+                type='html',
+                )
+        }
+
+    def create(self, cr, uid, values, context=None):
+        id = super(fnx_fs, self).create(cr, uid, values, context=context)
+        if id:
+            folder = self.fnxfs_folder_name(cr, uid, [id], context=context)[id]
+            base_path = fs_root / self._fnxfs_path
+            folder = folder.replace('/', '%2f')
+            try:
+                base_path.mkdir(folder)
+            except Exception:
+                _logger.exception('failure creating %s/%s' % (base_path, folder))
+        return id
+
+    def unlink(self, cr, uid, ids, context=None):
+        records = self.fnxfs_folder_name(cr, uid, ids, context=context)
+        if super(fnx_fs, self).unlink(cr, uid, ids, context=context):
+            base_path = fs_root / self._fnxfs_path
+            for id, folder in records.items():
+                folder = folder.replace('/', '%2f')
+                try:
+                    base_path.unlink(folder)
+                except Exception:
+                    _logger.exception('failure deleting %s/%s' % (base_path, folder))
+
+    def fnxfs_folder_name(self, cr, uid, ids, context=None):
+        res = {}
+        rec_name = self._rec_name
+        for datom in self.read(cr, uid, ids, fields=[rec_name], context=context):
+            res[datom['id']] = datom[rec_name]
+        return res
+
+file_list = '''\
+~div
+    -folder = xmlify(args.folder).replace('/','%2f')
+    ~ul
+        -for file_name in args.files:
+            -file_name = xmlify(file_name).replace('/','%2f')
+            -path = '%s?path=%s&folder=%s&file=%s' % (args.root, args.path, folder, file_name)
+            ~li
+                ~a href=path target='_blank': =file_name
+'''

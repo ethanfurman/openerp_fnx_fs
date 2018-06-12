@@ -15,10 +15,9 @@
     'js': [
         ],
     'css':['static/src/css/field_binary_css.css',],
-    'update_xml': [
+    'data': [
             'security/security.xml',
             'security/ir.model.access.csv',
-            'fs_view.xml',
         ],
     'test': [],
     'installable': True,

@@ -52,3 +52,27 @@ class FnxFS(Controller):
                 'Please see a supervisor to grant permission, or IT '
                 'if you do but are still getting this error.'
                 % target_file)
+
+    @httprequest
+    def download(self, request, path, folder, file):
+        target_path_file = fnx_root
+        target_path_file /= path
+        target_path_file /= folder.replace('/', '%2f')
+        target_path_file /= file.replace('/', '%2f')
+        try:
+            with (target_path_file).open('rb') as fh:
+                file_data = fh.read()
+            res = request.make_response(
+                    file_data,
+                    headers=[
+                        ('Content-Disposition',  content_disposition(target_path_file.filename, request)),
+                        ('Content-Type', guess_type(file)[0] or 'octet-stream'),
+                        ('Content-Length', len(file_data)),
+                        ],
+                    )
+            return res
+        except Exception:
+            _logger.exception('error accessing %r', file)
+            return werkzeug.exceptions.InternalServerError(
+                    'An error occured attempting to access %r; please let IT know.' % (str(file),)
+                    )

@@ -5,3 +5,4 @@
 "access_fnx_fs_folder_consumer","fnx.fs.folder","model_fnx_fs_folder","consumer",1,1,1,0
 "access_fnx_fs_folder_creator","fnx.fs.folder","model_fnx_fs_folder","consumer",1,1,1,0
 "access_fnx_fs_folder_manager","fnx.fs.folder","model_fnx_fs_folder","manager",1,1,1,1
+access_fnx_fs_fs,access_fnx_fs_fs,model_fnx_fs_fs,,1,1,1,1

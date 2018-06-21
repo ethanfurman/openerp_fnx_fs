@@ -972,6 +972,20 @@ class fnx_fs(osv.AbstractModel):
     _name = 'fnx_fs.fs'
 
     _fnxfs_path = ''
+    _fnxfs_path_fields = []
+
+    def __init__(self, pool, cr):
+        super(fnx_fs, self).__init__(pool, cr)
+        if not self._fnxfs_path_fields:
+            self._fnxfs_path_fields = [self._rec_name]
+        if self.__class__.__name__ != 'fnx_fs':
+            missing = [
+                    f
+                    for f in self._fnxfs_path_fields
+                    if f not in self._columns
+                    ]
+            if missing:
+                _logger.error('the fnx_fs path fields %r are not present in %r', missing, self._name)
 
     def _auto_init(self, cr, context=None):
         super(fnx_fs, self)._auto_init(cr, context)
@@ -989,7 +1003,10 @@ class fnx_fs(osv.AbstractModel):
         website = website.value + '/fnxfs/download'
         template = Xaml(file_list).document.pages[0]
         base_path = fs_root / self._fnxfs_path
-        for id, folder in self.fnxfs_folder_name(cr, uid, ids, context=context).items():
+        folder_names = self.read(cr, uid, ids, fields=['fnxfs_folder'], context=context)
+        for record in folder_names:
+            id = record['id']
+            folder = record['fnxfs_folder']
             res[id] = False
             folder = folder.replace('/', '%2f')
             if not base_path.exists(folder):
@@ -1001,42 +1018,97 @@ class fnx_fs(osv.AbstractModel):
                 res[id] = template.string(root=website, path=self._fnxfs_path, folder=folder, files=files)
         return res
 
+    def _set_fnxfs_folder(self, cr, uid, ids, context=None):
+        print 'in _set_fnxfs_folder with ids: %r' % (ids, )
+        if isinstance(ids, (int, long)):
+            ids = [ids]
+        base_path = fs_root / self._fnxfs_path
+        records = self.read(cr, uid, ids, fields=['fnxfs_folder']+self._fnxfs_path_fields, context=context)
+        folder_names = self.fnxfs_folder_name(records)
+        for rec in records:
+            actual = rec['fnxfs_folder']
+            should_be = folder_names[rec['id']]
+            if not actual:
+                # initial record creation
+                self.write(cr, uid, rec['id'], {'fnxfs_folder': should_be}, context=context)
+                should_be = should_be.replace('/','%2f')
+                if base_path.exists(should_be):
+                    _logger.warning('%r already exists', should_be)
+                else:
+                    try:
+                        base_path.mkdir(should_be)
+                    except Exception:
+                        _logger.exception('failure creating %s/%s' % (base_path, should_be))
+            elif actual != should_be:
+                # modifying existing record and changing folder-name elements
+                self.write(cr, uid, rec['id'], {'fnxfs_folder': should_be}, context=context)
+                actual = actual.replace('/','%2f')
+                should_be = should_be.replace('/','%2f')
+                if base_path.exists(should_be):
+                    raise ERPError('Error', 'New path "%s" already exists' % should_be)
+                try:
+                    base_path.rename(actual, should_be)
+                except Exception:
+                    _logger.exception('failure renaming "%s" to "%s"', actual, should_be)
+                    raise
+
     _columns = {
+        'fnxfs_folder': fields.char('Folder Name', size=128),
         'fnxfs_files': fields.function(
-                _fnxfs_files,
-                string='Available Files',
-                type='html',
-                )
+            _fnxfs_files,
+            string='Available Files',
+            type='html',
+            ),
         }
 
     def create(self, cr, uid, values, context=None):
         id = super(fnx_fs, self).create(cr, uid, values, context=context)
         if id:
-            folder = self.fnxfs_folder_name(cr, uid, [id], context=context)[id]
-            base_path = fs_root / self._fnxfs_path
-            folder = folder.replace('/', '%2f')
-            try:
-                base_path.mkdir(folder)
-            except Exception:
-                _logger.exception('failure creating %s/%s' % (base_path, folder))
+            missing = [f for f in self._fnxfs_path_fields if f not in values]
+            if missing:
+                raise ERPError('Missing Data', 'Fields %r are required' % (missing, ))
+            self._set_fnxfs_folder(cr, uid, [id], context=context)
         return id
 
-    def unlink(self, cr, uid, ids, context=None):
-        records = self.fnxfs_folder_name(cr, uid, ids, context=context)
-        if super(fnx_fs, self).unlink(cr, uid, ids, context=context):
-            base_path = fs_root / self._fnxfs_path
-            for id, folder in records.items():
-                folder = folder.replace('/', '%2f')
-                try:
-                    base_path.rmtree(folder)
-                except Exception:
-                    _logger.exception('failure deleting %s/%s' % (base_path, folder))
+    def write(self, cr, uid, ids, values, context=None):
+        success = super(fnx_fs, self).write(cr, uid, ids, values, context=context)
+        if success:
+            presence = [f for f in self._fnxfs_path_fields if f in values]
+            if presence:
+                self._set_fnxfs_folder(cr, uid, ids, context=context)
+        return success
 
-    def fnxfs_folder_name(self, cr, uid, ids, context=None):
+    def unlink(self, cr, uid, ids, context=None):
+        in_danger = [
+                r['fnxfs_folder']
+                for r in self.read(cr, uid, ids, fields=['fnxfs_folder'], context=context)
+                ]
+        if super(fnx_fs, self).unlink(cr, uid, ids, context=context):
+            # figure out which folders should still exist
+            should_exist = set([
+                    r['fnxfs_folder']
+                    for r in self.read(cr, uid, ids, fields=['fnxfs_folder'], context=context)
+                    ])
+            should_not_exist = [
+                    f
+                    for f in in_danger
+                    if f not in should_exist
+                    ]
+            base_path = fs_root / self._fnxfs_path
+            for dead in should_not_exist:
+                dead = dead.replace('/','%2f')
+                try:
+                    base_path.rmtree(dead)
+                except Exception:
+                    _logger.exception('failure deleting %s/%s' % (base_path, dead))
+        return True
+
+    def fnxfs_folder_name(self, records):
+        print 'in fnxfs.fs::fnxfs_folder_name'
         res = {}
         rec_name = self._rec_name
-        for datom in self.read(cr, uid, ids, fields=[rec_name], context=context):
-            res[datom['id']] = datom[rec_name]
+        for record in records:
+            res[record['id']] = record[rec_name]
         return res
 
 file_list = '''\

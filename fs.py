@@ -1019,7 +1019,6 @@ class fnx_fs(osv.AbstractModel):
         return res
 
     def _set_fnxfs_folder(self, cr, uid, ids, context=None):
-        print 'in _set_fnxfs_folder with ids: %r' % (ids, )
         if isinstance(ids, (int, long)):
             ids = [ids]
         base_path = fs_root / self._fnxfs_path
@@ -1104,12 +1103,30 @@ class fnx_fs(osv.AbstractModel):
         return True
 
     def fnxfs_folder_name(self, records):
-        print 'in fnxfs.fs::fnxfs_folder_name'
         res = {}
         rec_name = self._rec_name
         for record in records:
             res[record['id']] = record[rec_name]
         return res
+
+    def fnxfs_menu_upload(self, cr, uid, ids, context=None):
+        if all([k in context for k in ('active_model', 'active_ids', 'active_id')]):
+            if len(ids) != 1:
+                raise ERPError('Invalid Selection', 'Can only upload files to one document at a time')
+            id = context.get('active_id')
+            record = self.browse(cr, uid, id, context=context)
+            ir_config_parameter = self.pool.get('ir.config_parameter')
+            website = ir_config_parameter.browse(cr, uid, [('key','=','web.base.url')], context=context)[0]
+            website = website.value + '/fnxfs/select_files'
+            path = self._fnxfs_path
+            folder = record.fnxfs_folder.replace('/','%2f')
+            url = '%s?path=%s&folder=%s' % (website, path, folder)
+            return {
+                    'type': 'ir.actions.act_url',
+                    'url' : url,
+                    'target': 'current',
+                    }
+        raise ERPError('Missing Data', "At least one of active_model, active_id, or active_ids was not set")
 
 file_list = '''\
 ~div

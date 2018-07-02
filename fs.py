@@ -979,11 +979,20 @@ class fnx_fs(osv.AbstractModel):
         if not self._fnxfs_path_fields:
             self._fnxfs_path_fields = [self._rec_name]
         if self.__class__.__name__ != 'fnx_fs':
+            # check if fields defined directly in (super)class
             missing = [
                     f
                     for f in self._fnxfs_path_fields
                     if f not in self._columns
                     ]
+            # check if fields defined in _inherits (combined) class
+            for table_name in self._inherits:
+                partial_table = self.pool.get(table_name)
+                missing = [
+                        f
+                        for f in missing
+                        if f not in partial_table._columns
+                        ]
             if missing:
                 _logger.error('the fnx_fs path fields %r are not present in %r', missing, self._name)
 

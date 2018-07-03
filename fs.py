@@ -973,6 +973,8 @@ class fnx_fs(osv.AbstractModel):
 
     _fnxfs_path = ''
     _fnxfs_path_fields = []
+    _fnxfs_root = fs_root
+    _fnxfs_archive = archive_root
 
     def __init__(self, pool, cr):
         super(fnx_fs, self).__init__(pool, cr)

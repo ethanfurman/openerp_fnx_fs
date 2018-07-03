@@ -1052,15 +1052,15 @@ class fnx_fs(osv.AbstractModel):
             elif actual != should_be:
                 # modifying existing record and changing folder-name elements
                 self.write(cr, uid, rec['id'], {'fnxfs_folder': should_be}, context=context)
-                actual = actual.replace('/','%2f')
-                should_be = should_be.replace('/','%2f')
-                if base_path.exists(should_be):
-                    raise ERPError('Error', 'New path "%s" already exists' % should_be)
+                src = base_path/(actual.replace('/','%2f'))
+                dst = base_path/(should_be.replace('/','%2f'))
+                if dst.exists():
+                    raise ERPError('Error', 'New path "%s" already exists' % dst)
                 try:
-                    base_path.rename(actual, should_be)
+                    Path.rename(src, dst)
                 except Exception:
-                    _logger.exception('failure renaming "%s" to "%s"', actual, should_be)
-                    raise
+                    _logger.exception('failure renaming "%s" to "%s"', src, dst)
+                    raise ERPError('Failure', 'Unable to rename %r to %r' % (src, dst))
         return True
 
     _columns = {

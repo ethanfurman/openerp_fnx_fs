@@ -140,7 +140,7 @@ upload_template = """\
 
 :javascript
     (function () {
-        var rootdomain = "http://"+window.location.host
+        var rootdomain = window.location.origin
         var fileCatcher = document.getElementById('file-catcher');
         var fileInput = document.getElementById('file-input');
         var addFileListDisplay = document.getElementById('add-file-list-display');
@@ -195,6 +195,7 @@ upload_template = """\
                 fileDisplayEl.id = 'file-'+index;
                 var tracking = document.createElement('span');
                 tracking.id = 'file-span-'+index;
+                tracking.innerHTML = '&nbsp;&nbsp;-->&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Ready';
                 fileDisplayEl.appendChild(tracking);
                 yesNewFiles.appendChild(fileDisplayEl);
                 });
@@ -204,17 +205,16 @@ upload_template = """\
             var formData = new FormData();
             var request = new XMLHttpRequest();
             var fileSpanEl = document.getElementById('file-span-'+index);
-            fileSpanEl.innerHTML = '>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Ready';
             //
             request.onreadystatechange = function() {
                 if (request.readyState == 1) {
-                    fileSpanEl.innerHTML = '&nbsp;&nbsp;&nbsp;&nbsp;--->&nbsp;&nbsp;&nbsp;&nbsp;Sending...';
+                    fileSpanEl.innerHTML = '&nbsp;&nbsp;&nbsp;&nbsp;-->&nbsp;&nbsp;&nbsp;&nbsp;Sending...';
                 } else if (request.readyState == 4) {
                     if (request.status != 200) {
-                        fileSpanEl.innerHTML = '&nbsp;&nbsp;&nbsp;&nbsp;--->&nbsp;&nbsp;'+request.statusText;
+                        fileSpanEl.innerHTML = '&nbsp;&nbsp;&nbsp;&nbsp;-->&nbsp;&nbsp;'+request.statusText;
                         fileSpanEl.style.color = 'red';
                     } else {
-                        fileSpanEl.innerHTML = '&nbsp;&nbsp;&nbsp;&nbsp;--->&nbsp;&nbsp;&nbsp;&nbsp;Done';
+                        fileSpanEl.innerHTML = '&nbsp;&nbsp;&nbsp;&nbsp;-->&nbsp;&nbsp;&nbsp;&nbsp;Done';
                         noOldFiles.style.display = 'none';
                         yesOldFiles.style.display = '';
                         trackingEl = document.getElementById('file-span-'+index);

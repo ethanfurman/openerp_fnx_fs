@@ -1061,6 +1061,7 @@ class fnx_fs(osv.AbstractModel):
                 except Exception:
                     _logger.exception('failure renaming "%s" to "%s"', actual, should_be)
                     raise
+        return True
 
     _columns = {
         'fnxfs_folder': fields.char('Folder Name', size=128),

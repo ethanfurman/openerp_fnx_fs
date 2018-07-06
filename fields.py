@@ -45,27 +45,29 @@ class files(fields.function):
                 # create missing folder
                 _logger.warning('%r missing, creating', (base_path/disk_folder))
                 base_path.mkdir(disk_folder)
-            files = sorted([quote(f, safe='') for f in (base_path/disk_folder).listdir()])
+            display_files = sorted((base_path/disk_folder).listdir())
+            safe_files = [quote(f, safe='') for f in display_files]
             # if files:
             res[id] = template.string(
                     download=website_download,
                     path=leaf_path,
                     folder=web_folder,
-                    files=files,
+                    display_files=display_files,
+                    web_files=safe_files,
                     select=website_select,
                     )
         return res
 
     def set(self, cr, obj, id, name, value, user=None, context=None):
         pass
-    
-file_list = '''\
+
+file_list = '''
 ~div
     ~ul
-        -for file_name in args.files:
-            -path = '%s?path=%s&folder=%s&file=%s' % (args.download, args.path, args.folder, file_name)
+        -for wfile, dfile in zip(args.web_files, args.display_files):
+            -path = '%s?path=%s&folder=%s&file=%s' % (args.download, args.path, args.folder, wfile)
             ~li
-                ~a href=path target='_blank': =file_name
+                ~a href=path target='_blank': =dfile
     ~br
     ~a href=args.select target='_blank': Add files...
 '''

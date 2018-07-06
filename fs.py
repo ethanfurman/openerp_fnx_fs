@@ -3,13 +3,13 @@ from dbf import DateTime, Time, Date
 from VSS.utils import  float
 from VSS.constants import Weekday
 from fnx.oe import get_user_login, get_user_timezone, AttrDict
+from fields import files
 from openerp import CONFIG_DIR, SUPERUSER_ID as SUPERUSER
 from openerp.exceptions import ERPError
 from osv import osv, fields
 from pytz import timezone
 from scription import Execute, OrmFile
 from subprocess import check_output, CalledProcessError
-from xaml import Xaml
 import errno
 import logging
 import os
@@ -981,6 +981,9 @@ class fnx_fs(osv.AbstractModel):
         if not self._fnxfs_path_fields:
             self._fnxfs_path_fields = [self._rec_name]
         if self.__class__.__name__ != 'fnx_fs':
+            # check if path is set
+            if not self._fnxfs_path:
+                _logger.error('No path is set for %r' % self._name)
             # check if fields defined directly in (super)class
             missing = [
                     f
@@ -1000,76 +1003,63 @@ class fnx_fs(osv.AbstractModel):
 
     def _auto_init(self, cr, context=None):
         super(fnx_fs, self)._auto_init(cr, context)
-        if not fs_root.exists(self._fnxfs_path):
-            fs_root.makedirs(self._fnxfs_path)
-
-    def _fnxfs_files(self, cr, uid, ids, name, args, context=None):
-        if isinstance(ids, (int, long)):
-            ids = [ids]
-        res = {}
-        if not ids:
-            return res
-        ir_config_parameter = self.pool.get('ir.config_parameter')
-        website = ir_config_parameter.browse(cr, uid, [('key','=','web.base.url')], context=context)[0]
-        website = website.value + '/fnxfs/download'
-        template = Xaml(file_list).document.pages[0]
-        base_path = fs_root / self._fnxfs_path
-        folder_names = self.read(cr, uid, ids, fields=['fnxfs_folder'], context=context)
-        for record in folder_names:
-            id = record['id']
-            folder = record['fnxfs_folder']
-            res[id] = False
-            folder = folder.replace('/', '%2f')
-            if not base_path.exists(folder):
-                # create missing folder
-                _logger.warning('%r missing, creating', (base_path/folder))
-                base_path.mkdir(folder)
-            files = sorted((base_path/folder).listdir())
-            if files:
-                res[id] = template.string(root=website, path=self._fnxfs_path, folder=folder, files=files)
-        return res
+        if not self._fnxfs_root.exists(self._fnxfs_path):
+            self._fnxfs_root.makedirs(self._fnxfs_path)
+        if self.__class__.__name__ != 'fnx_fs':
+            found = False
+            for name, column_info in self._all_columns.items():
+                column = column_info.column
+                if isinstance(column, files):
+                    found = True
+                    path = self._fnxfs_root/self._fnxfs_path/column.path
+                    if not path.exists():
+                        path.mkdir()
+            if not found:
+                _logger.error('table %r inherits from model <fnx_fs.fs> but has no <files> fields' % self._name)
 
     def _set_fnxfs_folder(self, cr, uid, ids, context=None):
         if isinstance(ids, (int, long)):
             ids = [ids]
-        base_path = fs_root / self._fnxfs_path
-        records = self.read(cr, uid, ids, fields=['fnxfs_folder']+self._fnxfs_path_fields, context=context)
+        field_names = []
+        columns = []
+        for name, column in self._columns.items():
+            if isinstance(column, files):
+                field_names.append(name)
+                columns.append(column)
+        records = self.read(cr, uid, ids, fields=['fnxfs_folder']+field_names+self._fnxfs_path_fields, context=context)
         folder_names = self.fnxfs_folder_name(records)
         for rec in records:
             actual = rec['fnxfs_folder']
             should_be = folder_names[rec['id']]
-            if not actual:
-                # initial record creation
+            if not actual or actual != should_be:
                 self.write(cr, uid, rec['id'], {'fnxfs_folder': should_be}, context=context)
-                should_be = should_be.replace('/','%2f')
-                if base_path.exists(should_be):
-                    _logger.warning('%r already exists', should_be)
-                else:
+            for field_name, field_column in zip(field_names, columns):
+                base_path = self._fnxfs_root / self._fnxfs_path / field_column.path
+                if not actual:
+                    # initial record creation
+                    should_be = should_be.replace('/','%2f')
+                    if base_path.exists(should_be):
+                        _logger.warning('%r already exists', should_be)
+                    else:
+                        try:
+                            base_path.mkdir(should_be)
+                        except Exception:
+                            _logger.exception('failure creating %s/%s' % (base_path, should_be))
+                elif actual != should_be:
+                    # modifying existing record and changing folder-name elements
+                    src = base_path/(actual.replace('/','%2f'))
+                    dst = base_path/(should_be.replace('/','%2f'))
+                    if dst.exists():
+                        raise ERPError('Error', 'New path "%s" already exists' % dst)
                     try:
-                        base_path.mkdir(should_be)
+                        Path.rename(src, dst)
                     except Exception:
-                        _logger.exception('failure creating %s/%s' % (base_path, should_be))
-            elif actual != should_be:
-                # modifying existing record and changing folder-name elements
-                self.write(cr, uid, rec['id'], {'fnxfs_folder': should_be}, context=context)
-                src = base_path/(actual.replace('/','%2f'))
-                dst = base_path/(should_be.replace('/','%2f'))
-                if dst.exists():
-                    raise ERPError('Error', 'New path "%s" already exists' % dst)
-                try:
-                    Path.rename(src, dst)
-                except Exception:
-                    _logger.exception('failure renaming "%s" to "%s"', src, dst)
-                    raise ERPError('Failure', 'Unable to rename %r to %r' % (src, dst))
+                        _logger.exception('failure renaming "%s" to "%s"', src, dst)
+                        raise ERPError('Failure', 'Unable to rename %r to %r' % (src, dst))
         return True
 
     _columns = {
         'fnxfs_folder': fields.char('Folder Name', size=128),
-        'fnxfs_files': fields.function(
-            _fnxfs_files,
-            string='Available Files',
-            type='html',
-            ),
         }
 
     def create(self, cr, uid, values, context=None):
@@ -1105,7 +1095,7 @@ class fnx_fs(osv.AbstractModel):
                     for f in in_danger
                     if f not in should_exist
                     ]
-            base_path = fs_root / self._fnxfs_path
+            base_path = self._fnxfs_root / self._fnxfs_path
             for dead in should_not_exist:
                 dead = dead.replace('/','%2f')
                 try:
@@ -1120,33 +1110,3 @@ class fnx_fs(osv.AbstractModel):
         for record in records:
             res[record['id']] = record[rec_name]
         return res
-
-    def fnxfs_menu_upload(self, cr, uid, ids, context=None):
-        if all([k in context for k in ('active_model', 'active_ids', 'active_id')]):
-            if len(ids) != 1:
-                raise ERPError('Invalid Selection', 'Can only upload files to one document at a time')
-            id = context.get('active_id')
-            record = self.browse(cr, uid, id, context=context)
-            ir_config_parameter = self.pool.get('ir.config_parameter')
-            website = ir_config_parameter.browse(cr, uid, [('key','=','web.base.url')], context=context)[0]
-            website = website.value + '/fnxfs/select_files'
-            path = self._fnxfs_path
-            folder = record.fnxfs_folder.replace('/','%2f')
-            url = '%s?path=%s&folder=%s' % (website, path, folder)
-            return {
-                    'type': 'ir.actions.act_url',
-                    'url' : url,
-                    'target': 'current',
-                    }
-        raise ERPError('Missing Data', "At least one of active_model, active_id, or active_ids was not set")
-
-file_list = '''\
-~div
-    -folder = xmlify(args.folder).replace('/','%2f')
-    ~ul
-        -for file_name in args.files:
-            -file_name = xmlify(file_name).replace('/','%2f')
-            -path = '%s?path=%s&folder=%s&file=%s' % (args.root, args.path, folder, file_name)
-            ~li
-                ~a href=path target='_blank': =file_name
-'''

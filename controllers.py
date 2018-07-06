@@ -120,7 +120,7 @@ upload_template = """\
     ~input #path-name type='hidden' name='path' value=args.path
     ~button type='submit'
         Submit
-    ~button type='button' onclick="window.open('','_self','');window.close()": close
+    ~button type='button' onclick="window.open('','_self','');window.close()": Close
 
 ~div #add-file-list-display
     ~h4:  Files to add

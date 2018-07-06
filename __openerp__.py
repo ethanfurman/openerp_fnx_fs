@@ -1,6 +1,6 @@
 {
    'name': 'Fnx File System',
-    'version': '0.8',
+    'version': '0.9',
     'category': 'Generic Modules',
     'description': """\
             Phoenix file management system.

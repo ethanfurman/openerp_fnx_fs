@@ -1026,7 +1026,7 @@ class fnx_fs(osv.AbstractModel):
             if isinstance(column, files):
                 field_names.append(name)
                 columns.append(column)
-        records = self.read(cr, uid, ids, fields=['fnxfs_folder']+field_names+self._fnxfs_path_fields, context=context)
+        records = self.read(cr, uid, ids, fields=['fnxfs_folder']+self._fnxfs_path_fields, context=context)
         folder_names = self.fnxfs_folder_name(records)
         for rec in records:
             actual = rec['fnxfs_folder']

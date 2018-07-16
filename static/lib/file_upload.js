@@ -89,7 +89,6 @@ var file_upload = function () {
         formData.append('file', fileName);
         formData.append('folder', document.getElementById('folder_name').value);
         formData.append('path', document.getElementById('path_name').value);
-        formData.append('token', document.getElementById('access_token').value);
         request.open("POST", rootdomain+"/fnxfs/delete");
         request.send(formData);
         };

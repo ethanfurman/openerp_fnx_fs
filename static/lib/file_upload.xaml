@@ -8,7 +8,6 @@
         ~input #file_input type='file' multiple style='width: 75px;'
         ~input #folder_name type='hidden' name='folder' value=args.folder
         ~input #path_name type='hidden' name='path' value=args.path
-        ~input #access_token type='hidden' name='token' value=args.token
         ~button type='submit'
             Submit
         ~button type='button' onclick="window.open('','_self','');window.close()": Close

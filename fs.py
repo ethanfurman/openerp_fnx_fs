@@ -1031,6 +1031,12 @@ class fnx_fs(osv.AbstractModel):
         for rec in records:
             actual = rec['fnxfs_folder']
             should_be = folder_names[rec['id']]
+            if not should_be:
+                raise ERPError(
+                        'Missing Data',
+                        'Unable to create folder name from:\n\n' +
+                            '\n'.join(['%s: %r' % (f, rec[f]) for f in self._fnxfs_path_fields])
+                            )
             if not actual or actual != should_be:
                 self.write(cr, uid, rec['id'], {'fnxfs_folder': should_be}, context=context)
             for field_name, field_column in zip(field_names, columns):
@@ -1065,9 +1071,6 @@ class fnx_fs(osv.AbstractModel):
     def create(self, cr, uid, values, context=None):
         id = super(fnx_fs, self).create(cr, uid, values, context=context)
         if id:
-            missing = [f for f in self._fnxfs_path_fields if f not in values]
-            if missing:
-                raise ERPError('Missing Data', 'Fields %r are required' % (missing, ))
             self._set_fnxfs_folder(cr, uid, [id], context=context)
         return id
 

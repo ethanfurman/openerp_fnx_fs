@@ -1,0 +1,37 @@
+!!!html
+~head
+    ~script type='text/javascript' src='static/lib/file_upload.js'
+    ~link type='text/css' rel='stylesheet' href='static/lib/file_upload.css'
+~body
+    ~h3:  =args.folder
+    ~form #file_catcher method='post'
+        ~input #file_input type='file' multiple style='width: 75px;'
+        ~input #folder_name type='hidden' name='folder' value=args.folder
+        ~input #path_name type='hidden' name='path' value=args.path
+        ~input #access_token type='hidden' name='token' value=args.token
+        ~button type='submit'
+            Submit
+        ~button type='button' onclick="window.open('','_self','');window.close()": Close
+
+    ~div #add_file_div
+        ~h4:  Files to add
+        ~p #no_new_files: None selected.
+        ~ul #yes_new_files .bare_list style='display: none;'
+    ~br
+    ~div #existing_file_div
+        ~h4:  Existing files
+        -if not args.files:
+            ~p #no_old_files: None
+            ~ul #yes_old_files .bare_list style='display: none;'
+        -else:
+            ~p #no_old_files style='display: none;': None
+            ~ul #yes_old_files .bare_list
+                -for f in sorted(args.files):
+                    ~li
+                        ~button .icons: d
+                        ~span: =f
+    :javascript
+        window.onload = function() {
+            file_upload();
+        }
+

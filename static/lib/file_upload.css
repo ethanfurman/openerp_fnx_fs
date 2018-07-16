@@ -1,0 +1,22 @@
+@charset "utf-8";
+
+@font-face {
+  font-family: "mnmliconsRegular";
+  src: url("/fnxfs/static/src/font/mnmliconsv21-webfont.eot") format("eot");
+  src: url("/fnxfs/static/src/font/mnmliconsv21-webfont.woff") format("woff");
+  src: url("/fnxfs/static/src/font/mnmliconsv21-webfont.ttf") format("truetype");
+  src: url("/fnxfs/static/src/font/mnmliconsv21-webfont.svg") format("svg") active;
+  font-weight: normal;
+  font-style: normal;
+}
+
+.icons {
+  font-family: "mnmliconsRegular" !important;
+  font-size: 21px;
+  font-weight: 300 !important;
+  margin: 0px 10px;
+}
+
+.bare_list {
+    list-style-type: none;
+}

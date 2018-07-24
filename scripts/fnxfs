@@ -1,0 +1,70 @@
+#!/usr/local/sbin/suid-python --virtualenv
+
+"""\
+Various utilities for managing fnx_fs attached files.
+"""
+
+from __future__ import print_function
+from antipathy import Path
+from scription import *
+from openerplib import get_connection
+
+import os
+CONFIG = Path('/%s/config/fnx.ini' % os.environ['VIRTUAL_ENV'])
+
+try:
+    settings = OrmFile(CONFIG)
+except Exception:
+    print('WARNING: unable to process configfile; all parameters must be specified', file=stderr)
+    HOST = ''
+    USER = ''
+    DB = ''
+    PW = ''
+    NETWORK_PW = ''
+else:
+    HOST = settings.openerp.host
+    USER = settings.openerp.user
+    DB = settings.openerp.db
+    PW = settings.openerp.pw
+    NETWORK_PW = settings.network.pw
+
+openerp = None
+
+
+@Script(
+        host=('host where OpenERP instance is running', OPTION),
+        db=('database to use', OPTION),
+        user=('login name to use', OPTION),
+        pw=('password for login name', OPTION),
+        )
+def main(host=HOST, db=DB, user=USER, pw=''):
+    global Type, convert, _logger
+    # set up openerp connection info
+    if host:
+        module.HOST = host
+    if db:
+        module.DB = db
+    if user:
+        module.USER = user
+    if pw:
+        module.PW = pw
+    for req in ('HOST', 'USER', 'DB', 'PW'):
+        if not module[req]:
+            raise SystemExit('%r required; use --help for more info' % req)
+    # link to openerp tables
+    module.openerp = get_connection(hostname=HOST, database=DB, login=USER, password=PW)
+
+
+@Command(
+        tables=Spec('table(s) to initialize', ),
+        folder_names=Spec('populate new fnxfs_folder field', FLAG, abbrev=None),
+        )
+def initialize(folder_names, *tables):
+    for table in tables:
+        model = openerp.get_model(table)
+        ids = model.search([('id','!=',0)])
+        model._set_fnxfs_folder(ids)
+        echo('%s: folder names added to %d records' % (table, len(ids)))
+
+
+Main()

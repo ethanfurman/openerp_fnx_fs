@@ -1049,7 +1049,7 @@ class fnx_fs(osv.AbstractModel):
             for field_name, field_column in zip(field_names, columns):
                 base_path = self._fnxfs_root / self._fnxfs_path / field_column.path
                 if not actual:
-                    # initial record creation
+                    # initial record creation / field population
                     should_be = should_be.replace('/','%2f')
                     if base_path.exists(should_be):
                         _logger.warning('%r already exists', should_be)
@@ -1069,6 +1069,16 @@ class fnx_fs(osv.AbstractModel):
                     except Exception:
                         _logger.exception('failure renaming "%s" to "%s"', src, dst)
                         raise ERPError('Failure', 'Unable to rename %r to %r' % (src, dst))
+                else:
+                    # more files fields added after initial field population
+                    will_be = should_be.replace('/','%2f')
+                    if base_path.exists(will_be):
+                        _logger.warning('%r already exists', will_be)
+                    else:
+                        try:
+                            base_path.mkdir(will_be)
+                        except Exception:
+                            _logger.exception('failure creating %s/%s' % (base_path, will_be))
         return True
 
     _columns = {

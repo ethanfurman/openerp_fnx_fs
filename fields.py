@@ -10,7 +10,7 @@ _logger = logging.getLogger(__name__)
 class files(fields.function):
     "shows files at a certain location"
 
-    def __init__(self, arg, **kwds):
+    def __init__(self, path, **kwds):
         for setting in (
                 'fnct_inv', 'fnct_inv_arg', 'type', 'fnct_search', 'obj',
                 'store', 'multi', 'readonly', 'manual', 'required', 'domain',
@@ -19,7 +19,7 @@ class files(fields.function):
             if setting in kwds:
                 raise KeyError('%s: setting %r is not allowed' % (kwds.get('string', '<unknown>'), setting))
         super(files, self).__init__(False, readonly=True, type='html', **kwds)
-        self.path = arg
+        self.path = path
 
     def get(self, cr, model, ids, name, uid=False, context=None, values=None):
         if isinstance(ids, (int, long)):

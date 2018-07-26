@@ -1000,6 +1000,13 @@ class fnx_fs(osv.AbstractModel):
                         ]
             if missing:
                 _logger.error('the fnx_fs path fields %r are not present in %r', missing, self._name)
+        field_paths = set()
+        for name, column in self._columns.items():
+            if isinstance(column, files):
+                if not column.path:
+                    field_paths.add(name)
+        if len(field_paths) > 1:
+            _logger.error('%s : too many files fields have no path: %s', self._name, ', '.join(sorted(field_paths)))
 
     def _auto_init(self, cr, context=None):
         super(fnx_fs, self)._auto_init(cr, context)

@@ -62,7 +62,7 @@ def main(host=HOST, db=DB, user=USER, pw=''):
 def initialize(folder_names, *tables):
     for table in tables:
         model = openerp.get_model(table)
-        ids = model.search([('id','!=',0)])
+        ids = model.search([('id','!=',0)], context={'active_test':False})
         model._set_fnxfs_folder(ids)
         echo('%s: folder names added to %d records' % (table, len(ids)))
 

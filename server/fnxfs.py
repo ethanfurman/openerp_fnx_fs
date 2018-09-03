@@ -147,7 +147,7 @@ def cp(
                         continue
                 new_fn = new_fn.replace('%20', ' ')
                 new_fn = ''.join([ch for ch in new_fn if ord(ch) < 128])
-                new_fn = fn.path / new_fn
+                new_fn = fn.dirname / new_fn
                 copy(dirpath/fn, FS_ROOT/dst/dirpath/new_fn, timeout)
 
 
@@ -175,9 +175,9 @@ def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, as_user):
     print('destination file ->', dst)
     if dst not in SETTINGS.folders:
         print('  not in SETTINGS.folders')
-        if dst.path not in SETTINGS.folders:
-            abort('missing folder: <%s> does not exist (use "tree" to see all folders/files)' % dst.path)
-        print('  but %s is' % dst.path)
+        if dst.dirname not in SETTINGS.folders:
+            abort('missing folder: <%s> does not exist (use "tree" to see all folders/files)' % dst.dirname)
+        print('  but %s is' % dst.dirname)
     if not dst.filename:
         # dst was a path, so add the filename
         dst /= src_filename
@@ -213,12 +213,12 @@ def create_file(src, dst, styp, ptyp, ro_users, rw_users, desc, freq, as_user):
     user = as_user or AS_USER
     if user is not None:
         print('user is', user)
-        if dst.path == '/':
+        if dst.dirname == '/':
             if SETTINGS.users[user].level not in ('creator', 'manager'):
                 abort('invalid folder: files must be shared in a virtual folder')
-        elif SETTINGS.folders[dst.path].share_type != 'virtual':
-            abourt('invalid folder: files must be shared in a virtual folder')
-        elif user not in SETTINGS.folders[dst.path].create_delete_users:
+        elif SETTINGS.folders[dst.dirname].share_type != 'virtual':
+            abort('invalid folder: files must be shared in a virtual folder')
+        elif user not in SETTINGS.folders[dst.dirname].create_delete_users:
             abort('permission denied')
     # okay, let's do this!
     # step 0: copy file into fnxfs directory structure
@@ -264,7 +264,7 @@ def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc, as_user)
     if name in SETTINGS.folders:
         abort('folder <%s> already exists (use "show" for details)' % name)
     # check that parent folders exist
-    parent = name.path
+    parent = name.dirname
     if parent and parent not in SETTINGS.folders:
         abort('parent folder <%s> does not exist (use "tree" to see all folders/files)' % parent)
     # check that specified users exist
@@ -295,8 +295,8 @@ def create_folder(name, styp, ptyp, ro_users, rw_users, cd_users, desc, as_user)
         if SETTINGS.users[user].level not in ('creator', 'manager'):
             abort('permission denied: only creator and manager can create folders')
         elif ('/' in name
-              and user not in SETTINGS.folders[name.path].create_delete_users
-              # and user not in SETTINGS.folders[name.path].write_users
+              and user not in SETTINGS.folders[name.dirname].create_delete_users
+              # and user not in SETTINGS.folders[name.dirname].write_users
               ):
             abort('permission denied: write or create permission needed on parent folder')
     # okay, let's do this!
@@ -352,7 +352,7 @@ def delete_file(name, as_user):
     if user is not None:
         if user not in SETTINGS.files[name].write_users:
             abort('permission denied')
-        elif user not in SETTINGS.folders[name.path].create_delete_users:
+        elif user not in SETTINGS.folders[name.dirname].create_delete_users:
             abort('permission denied')
     print('removing file %s' % FS_ROOT/name)
     (FS_ROOT/name).unlink()
@@ -677,7 +677,7 @@ def tree(path, include_files, _prefix='', _files=defaultdict(list), _pool={}):
         print('getting files')
         for file in SETTINGS.files:
             print('adding', file, verbose=2)
-            _files[file.path].append(file.filename)
+            _files[file.dirname].append(file.filename)
     if not _pool:
         print('calculating pool')
         _pool['/'] = ([], [])
@@ -748,9 +748,9 @@ def copy(src, dst, timeout):
     if not archive_dst.exists():
         print('creating archive folder:', archive_dst, verbose=2)
         archive_dst.makedirs() #owner=openerp_ids)
-    if not dst.path.exists():
-        print('creating destination folder:', dst.path, verbose=2)
-        dst.path.makedirs() #owner=openerp_ids)
+    if not dst.dirname.exists():
+        print('creating destination folder:', dst.dirname, verbose=2)
+        dst.dirname.makedirs() #owner=openerp_ids)
     with PidLockFile(archive_dst/'locked.pid', timeout=timeout):
         print('copying...', verbose=2)
         src.copy(dst)
@@ -940,6 +940,7 @@ class Permissions(object):
                 except ValueError:
                     LOGGER.exception('unable to parse fnxfs.folders: %r', line)
         print('inheriting permissions')
+        echo('folders: %r' % self.folders.keys())
         for name in sorted(self.folders.keys()):
             print('  checking %s' % name, verbose=2)
             # XXX: possible optimization -- only check previous folder as it should have been set
@@ -947,7 +948,7 @@ class Permissions(object):
             vals = perms = self.folders[name]
             while perms.permissions_type == 'inherit':
                 print('    ', perms, verbose=2)
-                name = name.path
+                name = name.dirname
                 perms = self.folders[name]
             if vals is not perms:
                 vals.read_users = perms.read_users
@@ -981,11 +982,11 @@ class Permissions(object):
             # XXX: possible optimization -- only check containing folder as it should have been
             #      set by the previous loop
             vals = perms = self.files[name]
-            folder = name.path
+            folder = name.dirname
             print(repr(perms), verbose=3)
             while perms.permissions_type == 'inherit':
                 perms = self.folders[folder]
-                folder = folder.path
+                folder = folder.dirname
             if vals is not perms:
                 vals.read_users = perms.read_users
                 vals.write_users = perms.write_users + perms.create_delete_users

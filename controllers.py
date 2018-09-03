@@ -11,7 +11,7 @@ from xaml import Xaml
 
 _logger = logging.getLogger(__name__)
 fnx_root = Path('/var/openerp/fnxfs/')
-base = Path(__file__).path
+base = Path(__file__).dirname
 template = base/'/static/lib/file_upload.xaml'
 
 

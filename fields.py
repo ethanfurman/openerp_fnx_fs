@@ -17,7 +17,10 @@ class files(fields.function):
                 'states', 'change_default', 'size', 'translate',
             ):
             if setting in kwds:
-                raise KeyError('%s: setting %r is not allowed' % (kwds.get('string', '<unknown>'), setting))
+                raise KeyError(
+                        '%s: setting %r is not allowed'
+                        % (kwds.get('string', '<unknown>'), setting)
+                        )
         super(files, self).__init__(False, readonly=True, type='html', **kwds)
         self.path = path
 
@@ -27,27 +30,51 @@ class files(fields.function):
         res = {}
         if not ids:
             return res
+        #
+        # get on-disk file path
         ir_config_parameter = model.pool.get('ir.config_parameter')
-        website = ir_config_parameter.browse(cr, uid, [('key','=','web.base.url')], context=context)[0]
+        website = ir_config_parameter.browse(
+                cr, uid,
+                [('key','=','web.base.url')],
+                context=context,
+                )[0]
         website_download = website.value + '/fnxfs/download'
         template = Xaml(file_list).document.pages[0]
         leaf_path = Path(model._fnxfs_path)/self.path
         base_path = model._fnxfs_root / leaf_path
-        folder_names = model.read(cr, uid, ids, fields=['fnxfs_folder'], context=context)
+        folder_names = model.read(
+                cr, uid, ids,
+                fields=['fnxfs_folder'],
+                context=context,
+                )
+        #
+        # get user permissions for the table
+        perms = []
+        ir_model_access = model.pool.get('ir.model.access')
+        if ir_model_access.check( cr, uid, model._name, 'write', False, context):
+            perms.append('write')
+        if ir_model_access.check( cr, uid, model._name, 'unlink', False, context):
+            perms.append('unlink')
+        perms = '/'.join(perms)
+        #
+        # put it all together
         for record in folder_names:
             id = record['id']
             folder = record['fnxfs_folder']
             disk_folder = folder.replace('/', '%2f')
             web_folder = quote(folder, safe='')
             res[id] = False
-            website_select = website.value + '/fnxfs/select_files?path=%s&folder=%s' % (leaf_path, web_folder)
+            website_select = (
+                    website.value
+                    + '/fnxfs/select_files?model=%s&field=%s&rec_id=%s'
+                    % (model._name, self._field_name, id)
+                    )
             if not base_path.exists(disk_folder):
                 # create missing folder
                 _logger.warning('%r missing, creating', (base_path/disk_folder))
                 base_path.mkdir(disk_folder)
             display_files = sorted((base_path/disk_folder).listdir())
             safe_files = [quote(f, safe='') for f in display_files]
-            # if files:
             res[id] = template.string(
                     download=website_download,
                     path=leaf_path,
@@ -55,6 +82,7 @@ class files(fields.function):
                     display_files=display_files,
                     web_files=safe_files,
                     select=website_select,
+                    permissions=perms,
                     )
         return res
 
@@ -69,5 +97,10 @@ file_list = '''
             ~li
                 ~a href=path target='_blank': =dfile
     ~br
-    ~a href=args.select target='_blank': Add files...
+    -if args.permissions == 'write/unlink':
+        ~a href=args.select target='_blank': Add/Delete files...
+    -elif args.permissions == 'write':
+        ~a href=args.select target='_blank': Add files...
+    -elif args.permissions == 'unlink':
+        ~a href=args.select target='_blank': Delete files...
 '''

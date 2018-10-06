@@ -1130,3 +1130,29 @@ class fnx_fs(osv.AbstractModel):
         for record in records:
             res[record['id']] = record[rec_name]
         return res
+
+    def fnxfs_info(self, cr, uid, ids, field_name, context=None):
+        res = []
+        multi = True
+        if isinstance(ids, basestring):
+            ids = int(ids)
+        if isinstance(ids, (int, long)):
+            multi = False
+            ids = [ids]
+        root = self._fnxfs_root
+        trunk = self._fnxfs_path
+        branch = self._columns[field_name].path
+        perms = []
+        ir_model_access = self.pool.get('ir.model.access')
+        if ir_model_access.check(cr, uid, self._name, 'write', False, context):
+            perms.append('write')
+        if ir_model_access.check(cr, uid, self._name, 'unlink', False, context):
+            perms.append('unlink')
+        perms = '/'.join(perms)
+        for record in self.read(cr, SUPERUSER, ids, fields=['id', 'fnxfs_folder'], context=context):
+            leaf = record['fnxfs_folder']
+            res.append((record['id'], root, trunk, branch, leaf))
+        if multi:
+            return perms, res
+        else:
+            return perms, res[0][1:]

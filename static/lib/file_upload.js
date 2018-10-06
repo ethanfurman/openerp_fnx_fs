@@ -8,6 +8,9 @@ var file_upload = function () {
     var pNoOldFiles = document.getElementById('no_old_files');
     var ulYesOldFiles = document.getElementById('yes_old_files');
     var divExistingFile = document.getElementById('existing_file_div');
+    //
+    var writePermission = document.getElementById('perm_write').value == 'True';
+    var unlinkPermission = document.getElementById('perm_unlink').value == 'True';
     // 
     var existingFileNames = new Set();
     var incomingFileNames = new Set();
@@ -15,7 +18,7 @@ var file_upload = function () {
     //
     var oldChildren = ulYesOldFiles.children;
     for (var i = 0; i < oldChildren.length; i++) {
-        existingFileNames.add(oldChildren[i].innerHTML);
+        existingFileNames.add(oldChildren[i].children[1].innerHTML);
     };
     //
     inputFile.value = '';
@@ -47,7 +50,6 @@ var file_upload = function () {
         if (e.target.tagName=='BUTTON' && e.target.className=='icons') {
             var garbage = e.target.parentElement
             var fileName = garbage.children[1].innerHTML
-            console.log(fileName);
             incomingFiles.forEach(function (file) {
                 if (file.name == fileName) {
                     incomingFiles.splice(incomingFiles.indexOf(file), 1);
@@ -55,20 +57,16 @@ var file_upload = function () {
                     return;
                 };
             });
-            console.log('garbage', garbage);
             garbage.remove();
         };
     });
     //
     divExistingFile.addEventListener('click', function (e) {
         if (e.target.tagName=='BUTTON' && e.target.className=='icons') {
-            console.log('deleting existing file!');
             var garbage = e.target.parentElement
             var fileName = garbage.children[1].innerHTML
-            console.log(fileName);
             var request = new XMLHttpRequest();
             request.onreadystatechange = function() {
-                console.log('readyState:', request.readyState);
                 if (request.readyState == 4) {
                     if (request.status != 200) {
                         spanError = document.createElement('span');
@@ -87,18 +85,15 @@ var file_upload = function () {
             };
         var formData = new FormData();
         formData.append('file', fileName);
-        formData.append('folder', document.getElementById('folder_name').value);
-        formData.append('path', document.getElementById('path_name').value);
+        formData.append('field', document.getElementById('field_name').value);
+        formData.append('model', document.getElementById('model_name').value);
+        formData.append('rec_id', document.getElementById('record_id').value);
         request.open("POST", rootdomain+"/fnxfs/delete");
         request.send(formData);
         };
     });
     //
     var renderFileList = function (files, para, list, includeStatus) {
-        console.log('files', files);
-        console.log('para', para);
-        console.log('list', list);
-        console.log('includeStatus', includeStatus);
         if (!files.length) {
             para.style.display = '';
             list.style.display = 'none';
@@ -127,18 +122,17 @@ var file_upload = function () {
     //
     var sendFile = function (file, index) {
         var fileDisplay = (function () {
-            console.log('looking for:', file.name);
             var children = ulYesNewFiles.children
             for (var i = 0; i < children.length; i++) {
                 var liFile = children[i]
                 var fileName = liFile.children[1].innerHTML;
-                console.log('checking', fileName);
                 if (fileName == file.name) {
-                    console.log('found it!');
                     return liFile;
                 };
             };
         })();
+        var unlinkButton = fileDisplay.children[0];
+        var fileName = fileDisplay.children[1];
         var spanTracking = fileDisplay.children[2];
         var request = new XMLHttpRequest();
         request.onreadystatechange = function() {
@@ -157,6 +151,13 @@ var file_upload = function () {
                     if (existingFileNames.has(fileEl.innerHTML)) {
                         fileDisplay.remove();
                     } else {
+                        if (!unlinkPermission) {
+                            unlinkButton.remove();
+                            var listLeader = document.createElement('span');
+                            listLeader.innerHTML = 'U';
+                            listLeader.className = 'icons';
+                            fileDisplay.insertBefore(listLeader, fileName0;
+                        };
                         ulYesOldFiles.appendChild(fileDisplay);
                     };
                     incomingFiles.splice(incomingFiles.indexOf(file), 1);
@@ -170,8 +171,9 @@ var file_upload = function () {
         };
         var formData = new FormData();
         formData.append('file', file);
-        formData.append('folder', document.getElementById('folder_name').value);
-        formData.append('path', document.getElementById('path_name').value);
+        formData.append('field', document.getElementById('field_name').value);
+        formData.append('model', document.getElementById('model_name').value);
+        formData.append('rec_id', document.getElementById('record_id').value);
         request.open("POST", rootdomain+"/fnxfs/upload");
         request.send(formData);
     };

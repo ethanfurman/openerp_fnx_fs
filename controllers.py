@@ -2,6 +2,7 @@
 
 import logging
 import werkzeug
+from openerp import ROOT_DIR
 from openerp.addons.web.http import Controller, httprequest
 from openerp.addons.web.controllers.main import content_disposition
 from antipathy import Path
@@ -10,7 +11,7 @@ from operator import div
 from xaml import Xaml
 
 _logger = logging.getLogger(__name__)
-fnx_root = Path('/var/openerp/fnxfs/')
+fnx_root = Path('%s/var/openerp/fnxfs/' % ROOT_DIR)
 base = Path(__file__).dirname
 template = base/'/static/lib/file_upload.xaml'
 

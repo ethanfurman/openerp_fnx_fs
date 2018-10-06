@@ -4,7 +4,7 @@ from VSS.utils import  float
 from VSS.constants import Weekday
 from fnx.oe import get_user_login, get_user_timezone, AttrDict
 from fields import files
-from openerp import CONFIG_DIR, SUPERUSER_ID as SUPERUSER
+from openerp import ROOT_DIR, CONFIG_DIR, SUPERUSER_ID as SUPERUSER
 from openerp.exceptions import ERPError
 from osv import osv, fields
 from pytz import timezone
@@ -24,9 +24,9 @@ openerp_ids = tuple(pwd.getpwnam('openerp')[2:4])
 
 CONFIG_ERROR = "Configuration not set; check Settings --> Configuration --> FnxFS --> %s."
 
-fs_root = Path(u'/var/openerp/fnxfs/')
-archive_root = Path(u'/var/openerp/fnxfs_archive/')
-permissions_file = Path(u'/var/openerp/fnxfs.permissions')
+fs_root = Path(u'%s/var/openerp/fnxfs/' % ROOT_DIR)
+archive_root = Path(u'%s/var/openerp/fnxfs_archive/' % ROOT_DIR)
+permissions_file = Path(u'%s/var/openerp/fnxfs.permissions' % ROOT_DIR)
 mount_file = Path(u'%s/fnxfs.mount' % CONFIG_DIR)
 
 config = OrmFile('%s/fnx.ini' % CONFIG_DIR, section='fnxfsd')

@@ -27,13 +27,14 @@ if AS_USER == 'root':
     AS_ROOT = True
     AS_USER = None
 
-FS_ROOT = Path('/var/openerp/fnxfs')
-ARCHIVE_ROOT = Path('/var/openerp/fnxfs_archive')
-FNXFS_MOUNT = Path('/var/openerp/fnxfs.mount')
-USERS = Path('/var/openerp/fnxfs.users')
-FILES = Path('/var/openerp/fnxfs.files')
-FOLDERS = Path('/var/openerp/fnxfs.folders')
-PERMISSIONS = Path('/var/openerp/fnxfs.permissions')
+VIRTUAL_ENV = Path(os.environ['VIRTUAL_ENV'])
+FS_ROOT = VIRTUAL_ENV/'var/openerp/fnxfs'
+ARCHIVE_ROOT = VIRTUAL_ENV/'var/openerp/fnxfs_archive'
+FNXFS_MOUNT = VIRTUAL_ENV/'var/openerp/fnxfs.mount'
+USERS = VIRTUAL_ENV/'var/openerp/fnxfs.users'
+FILES = VIRTUAL_ENV/'var/openerp/fnxfs.files'
+FOLDERS = VIRTUAL_ENV/'var/openerp/fnxfs.folders'
+PERMISSIONS = VIRTUAL_ENV/'var/openerp/fnxfs.permissions'
 
 OPENERP_IDS = getpwnam('openerp')[2:4]
 
@@ -43,8 +44,8 @@ def main():
     print('running as', AS_USER or 'root')
     print('entering main()')
     global CLIENT_IP, LOGGER, CONFIG
-    CONFIG = OrmFile('%s/config/fnx.ini' % os.environ['VIRTUAL_ENV'], section='fnxfsd')
-    log_file = Path('/var/log/openerp/fnxfs.log')
+    CONFIG = OrmFile(VIRTUAL_ENV/'config/fnx.ini', section='fnxfsd')
+    log_file = VIRTUAL_ENV/'var/log/openerp/fnxfs.log'
     fnxfs_lock = PidLockFile('/var/run/fnxfs.pid', timeout=60)
     with open(log_file, 'a'):
         pass
@@ -887,7 +888,7 @@ def start_smb(source, options, mount):
     mount = '"%s"' % mount
     command = ['/bin/mount', ] + options.split() + [source, mount]
     command =  ' '.join(command)
-    with open('/var/log/fnxfs_debug', 'a+') as debug:
+    with open(VIRTUAL_ENV/'var/log/fnxfs_debug', 'a+') as debug:
         debug.write(command + '\n')
     # return commands.getoutput(command)
     output = Execute(command, password=CONFIG.server_root, pty=True)
@@ -914,7 +915,7 @@ def stop_smb(mount):
     """
     #commands.getoutput('umount "/var/openerp/fnxfs/IT Share/Requests/newShare5"') # this one works from python shell
     output = commands.getoutput('/bin/umount "%s"' % mount)
-    open('/var/log/fnxfs_debug','a+').write('/bin/umount "%s"\n' % mount)
+    open(VIRTUAL_ENV/'var/log/fnxfs_debug','a+').write('/bin/umount "%s"\n' % mount)
     return output
 
 # def stop_sshfs(mount):

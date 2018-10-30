@@ -156,7 +156,7 @@ var file_upload = function () {
                             var listLeader = document.createElement('span');
                             listLeader.innerHTML = 'U';
                             listLeader.className = 'icons';
-                            fileDisplay.insertBefore(listLeader, fileName0;
+                            fileDisplay.insertBefore(listLeader, fileName);
                         };
                         ulYesOldFiles.appendChild(fileDisplay);
                     };

@@ -116,7 +116,7 @@ class FnxFS(Controller):
                 # '\n_login: %r\n_uid: %r\n_db: %r\n_password: %r\ncontext: %r\n',
                 # ms._login, ms._uid, ms._db, ms._password, ms.context,
         except Exception:
-            _logger.exception('unauthorized attempt to delete %r', file)
+            _logger.exception('unauthorized attempt to access %r', file)
             return werkzeug.exceptions.Forbidden()
         oe_model = master_session.model(model)
         perms, (root, trunk, branch, leaf) = oe_model.fnxfs_info(rec_id, field)

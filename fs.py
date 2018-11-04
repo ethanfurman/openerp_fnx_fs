@@ -971,6 +971,15 @@ class res_users(osv.Model):
 class fnx_fs(osv.AbstractModel):
     _name = 'fnx_fs.fs'
 
+    # to use this in other tables:
+    #
+    # _inherit = [fnx_fs.fs]
+    # _fnxfs_path = '...'
+    # _fnxfs_path_fields = []
+    #
+    # if _fnxfs_path_fields includes any thing besides 'name':
+    # def fnxfs_folder_name(self, records): ...
+
     _fnxfs_path = ''
     _fnxfs_path_fields = []
     _fnxfs_root = fs_root

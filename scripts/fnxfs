@@ -57,9 +57,8 @@ def main(host=HOST, db=DB, user=USER, pw=''):
 
 @Command(
         tables=Spec('table(s) to initialize', ),
-        folder_names=Spec('populate new fnxfs_folder field', FLAG, abbrev=None),
         )
-def initialize(folder_names, *tables):
+def initialize(*tables):
     for table in tables:
         model = openerp.get_model(table)
         ids = model.search([('id','!=',0)], context={'active_test':False})

@@ -1140,7 +1140,7 @@ class fnx_fs(osv.AbstractModel):
             res[record['id']] = record[rec_name]
         return res
 
-    def fnxfs_info(self, cr, uid, ids, field_name, context=None):
+    def fnxfs_field_info(self, cr, uid, ids, field_name, context=None):
         res = []
         multi = True
         if isinstance(ids, basestring):

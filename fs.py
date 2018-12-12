@@ -984,12 +984,15 @@ class fnx_fs(osv.AbstractModel):
     _fnxfs_path_fields = []
     _fnxfs_root = fs_root
     _fnxfs_archive = archive_root
+    _fnxfs_tables = set()
 
     def __init__(self, pool, cr):
         super(fnx_fs, self).__init__(pool, cr)
         if not self._fnxfs_path_fields:
             self._fnxfs_path_fields = [self._rec_name]
         if self.__class__.__name__ != 'fnx_fs':
+            # record table
+            self.__class__._fnxfs_tables.add(self._name)
             # check if path is set
             if not self._fnxfs_path:
                 _logger.error('No path is set for %r' % self._name)
@@ -1141,6 +1144,7 @@ class fnx_fs(osv.AbstractModel):
         return res
 
     def fnxfs_field_info(self, cr, uid, ids, field_name, context=None):
+        "return (permissions, [(root, trunk, branch, leaf), ...]) for each record id"
         res = []
         multi = True
         if isinstance(ids, basestring):
@@ -1165,3 +1169,32 @@ class fnx_fs(osv.AbstractModel):
             return perms, res
         else:
             return perms, res[0][1:]
+
+    def fnxfs_table_info(self, cr, uid, context=None):
+        """
+           return {
+                table: [
+                   {'db_name': field_name, 'path': root/trunk/branch, 'name': field.name},
+                   {...},
+                   ],
+                table: [ ... ],
+                }
+        """
+        res = {}
+        for table_name in self._fnxfs_tables:
+            table = self.pool.get(table_name)
+            if not table:
+                _logger.warning('table %r not loaded', table_name)
+                continue
+            files_columns = []
+            for column_name, column in sorted(table._columns.items()):
+                if isinstance(column, files):
+                    files_columns.append({
+                            'name': column.string,
+                            'db_name': column_name,
+                            'path': Path(table._fnxfs_root)/table._fnxfs_path/column.path,
+                            })
+            if not files_columns:
+                _logger.warning('table %r has no files columns', table_name)
+            res[table_name] = sorted(files_columns, key=lambda d: d['name'])
+        return res

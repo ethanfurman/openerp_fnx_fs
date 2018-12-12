@@ -66,4 +66,22 @@ def initialize(*tables):
         echo('%s: folder names added to %d records' % (table, len(ids)))
 
 
+@Command(
+        table=('table to check', ),
+        field=('field to check', ),
+        )
+def file_paths(table=None, field=None):
+    info = openerp.get_model('fnx_fs.fs', transient=True).fnxfs_table_info()
+    for table_name, fields in sorted(info.items()):
+        if table is None or table == table_name:
+            echo(table_name, border='underline')
+            lines = []
+            for field_desc in fields:
+                if field is None or field == field_desc['name']:
+                    lines.append((field_desc['name'], field_desc['path']))
+            if lines:
+                width = max(map(len, [l[0] for l in lines]))
+                echo('\n'.join(['   %-*s: %s' % (width, l[0], l[1]) for l in lines]))
+            echo()
+
 Main()

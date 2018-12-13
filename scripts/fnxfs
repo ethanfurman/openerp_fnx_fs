@@ -84,4 +84,44 @@ def file_paths(table=None, field=None):
                 echo('\n'.join(['   %-*s: %s' % (width, l[0], l[1]) for l in lines]))
             echo()
 
+
+@Command(
+        table=('table to check', ),
+        field=('field to check', ),
+        )
+def prune(table=None, field=None):
+    info = openerp.get_model('fnx_fs.fs', transient=True).fnxfs_table_info()
+    for table_name, fields in sorted(info.items()):
+        if table is None or table == table_name:
+            for field_desc in fields:
+                if field is None or field == field_desc['name']:
+                    # remove empty leafs
+                    branch = Path(field_desc['path'])
+                    for leaf in branch.listdir():
+                        if not (branch/leaf).listdir():
+                            branch.rmdir(leaf)
+
+
+@Command(
+        state=Spec('state of leafs to check', choices=['alive', 'dead']),
+        table=Spec('table to check', ),
+        field=Spec('field to check', ),
+        )
+def leafs(state=None, table=None, field=None):
+    info = openerp.get_model('fnx_fs.fs', transient=True).fnxfs_table_info()
+    for table_name, fields in sorted(info.items()):
+        if table is None or table == table_name:
+            for field_desc in fields:
+                if field is None or field == field_desc['name']:
+                    # check for non-empty leafs
+                    branch = Path(field_desc['path'])
+                    for leaf in branch.listdir():
+                        living = (branch/leaf).listdir()
+                        if (
+                                (state == 'alive' and living)
+                             or (state == 'dead' and not living)
+                            ):
+                            echo(branch/leaf)
+
+
 Main()

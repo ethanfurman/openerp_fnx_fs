@@ -69,11 +69,9 @@ class files(fields.function):
                     + '/fnxfs/select_files?model=%s&field=%s&rec_id=%s'
                     % (model._name, self._field_name, id)
                     )
-            if not base_path.exists(disk_folder):
-                # create missing folder
-                _logger.warning('%r missing, creating', (base_path/disk_folder))
-                base_path.mkdir(disk_folder)
-            display_files = sorted((base_path/disk_folder).listdir())
+	    display_files = []
+            if base_path.exists(disk_folder):
+		    display_files = sorted((base_path/disk_folder).listdir())
             safe_files = [quote(f, safe='') for f in display_files]
             res[id] = template.string(
                     download=website_download,

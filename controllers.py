@@ -116,13 +116,16 @@ class FnxFS(Controller):
                 # '\n_login: %r\n_uid: %r\n_db: %r\n_password: %r\ncontext: %r\n',
                 # ms._login, ms._uid, ms._db, ms._password, ms.context,
         except Exception:
+            _logger.error('cookies: %r', request.httprequest.cookies)
             _logger.exception('unauthorized attempt to access %r', file)
             return werkzeug.exceptions.Forbidden()
         oe_model = master_session.model(model)
         perms, (root, trunk, branch, leaf) = oe_model.fnxfs_field_info(rec_id, field)
         target_path = reduce(div, [p for p in [root, trunk, branch] if p])
         target_path /= leaf.replace('/', '%2f')
-        files = target_path.listdir()
+        files = []
+        if target_path.exists():
+            files = target_path.listdir()
         template = self._get_template()
         page = template.string(
                 model=model,
@@ -156,9 +159,11 @@ class FnxFS(Controller):
             return werkzeug.exceptions.Forbidden()
         oe_model = master_session.model(model)
         perms, (root, trunk, branch, leaf) = oe_model.fnxfs_field_info(rec_id, field)
-        target_path_file = reduce(div, [p for p in [root, trunk, branch] if p])
-        target_path_file /= leaf.replace('/', '%2f')
-        target_path_file /= file.filename.replace('/', '%2f')
+        target_path= reduce(div, [p for p in [root, trunk, branch] if p])
+        target_path/= leaf.replace('/', '%2f')
+        if not target_path.exists():
+            target_path.mkdir()
+        target_path_file = target_path / file.filename.replace('/', '%2f')
         _logger.info("user: %r; action: upload; file: '%s'", master_session._login, target_path_file)
         file.save(target_path_file)
         return "%s successfully uploaded" % file.filename

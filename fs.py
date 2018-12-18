@@ -1037,6 +1037,7 @@ class fnx_fs(osv.AbstractModel):
                 _logger.error('table %r inherits from model <fnx_fs.fs> but has no <files> fields' % self._name)
 
     def _set_fnxfs_folder(self, cr, uid, ids, context=None):
+        "calculate and save leaf folder name; possibly rename existing folder"
         if isinstance(ids, (int, long)):
             ids = [ids]
         field_names = []
@@ -1060,17 +1061,7 @@ class fnx_fs(osv.AbstractModel):
                 self.write(cr, uid, rec['id'], {'fnxfs_folder': should_be}, context=context)
             for field_name, field_column in zip(field_names, columns):
                 base_path = self._fnxfs_root / self._fnxfs_path / field_column.path
-                if not actual:
-                    # initial record creation / field population
-                    should_be = should_be.replace('/','%2f')
-                    if base_path.exists(should_be):
-                        _logger.warning('%r already exists', should_be)
-                    else:
-                        try:
-                            base_path.mkdir(should_be)
-                        except Exception:
-                            _logger.exception('failure creating %s/%s' % (base_path, should_be))
-                elif actual != should_be:
+                if actual != should_be:
                     # modifying existing record and changing folder-name elements
                     src = base_path/(actual.replace('/','%2f'))
                     dst = base_path/(should_be.replace('/','%2f'))
@@ -1081,37 +1072,15 @@ class fnx_fs(osv.AbstractModel):
                     except Exception:
                         _logger.exception('failure renaming "%s" to "%s"', src, dst)
                         raise ERPError('Failure', 'Unable to rename %r to %r' % (src, dst))
-                else:
-                    # more files fields added after initial field population
-                    will_be = should_be.replace('/','%2f')
-                    if base_path.exists(will_be):
-                        _logger.warning('%r already exists', will_be)
-                    else:
-                        try:
-                            base_path.mkdir(will_be)
-                        except Exception:
-                            _logger.exception('failure creating %s/%s' % (base_path, will_be))
         return True
 
     _columns = {
-        'fnxfs_folder': fields.char('Folder Name', size=128),
+        'fnxfs_folder': fields.char('Folder Name', size=128, help='name of leaf folder'),
         }
 
-    def create(self, cr, uid, values, context=None):
-        id = super(fnx_fs, self).create(cr, uid, values, context=context)
-        if id:
-            self._set_fnxfs_folder(cr, uid, [id], context=context)
-        return id
-
-    def write(self, cr, uid, ids, values, context=None):
-        success = super(fnx_fs, self).write(cr, uid, ids, values, context=context)
-        if success:
-            presence = [f for f in self._fnxfs_path_fields if f in values]
-            if presence:
-                self._set_fnxfs_folder(cr, uid, ids, context=context)
-        return success
 
     def unlink(self, cr, uid, ids, context=None):
+        "remove any on-disk files for deleted records"
         in_danger = [
                 r['fnxfs_folder']
                 for r in self.read(cr, uid, ids, fields=['fnxfs_folder'], context=context)
@@ -1120,7 +1089,7 @@ class fnx_fs(osv.AbstractModel):
             # figure out which folders should still exist
             should_exist = set([
                     r['fnxfs_folder']
-                    for r in self.read(cr, uid, ids, fields=['fnxfs_folder'], context=context)
+                    for r in self.read(cr, uid, [('fnxfs_folder','in',in_danger)], fields=['fnxfs_folder'], context=context)
                     ])
             should_not_exist = [
                     f
@@ -1137,6 +1106,7 @@ class fnx_fs(osv.AbstractModel):
         return True
 
     def fnxfs_folder_name(self, records):
+        "default leaf folder name is the record's name"
         res = {}
         rec_name = self._rec_name
         for record in records:

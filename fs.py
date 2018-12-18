@@ -1067,11 +1067,12 @@ class fnx_fs(osv.AbstractModel):
                     dst = base_path/(should_be.replace('/','%2f'))
                     if dst.exists():
                         raise ERPError('Error', 'New path "%s" already exists' % dst)
-                    try:
-                        Path.rename(src, dst)
-                    except Exception:
-                        _logger.exception('failure renaming "%s" to "%s"', src, dst)
-                        raise ERPError('Failure', 'Unable to rename %r to %r' % (src, dst))
+                    if src.exists():
+                        try:
+                            Path.rename(src, dst)
+                        except Exception:
+                            _logger.exception('failure renaming "%s" to "%s"', src, dst)
+                            raise ERPError('Failure', 'Unable to rename %r to %r' % (src, dst))
         return True
 
     _columns = {

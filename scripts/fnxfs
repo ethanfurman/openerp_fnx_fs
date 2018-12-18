@@ -93,13 +93,18 @@ def prune(table=None, field=None):
     info = openerp.get_model('fnx_fs.fs', transient=True).fnxfs_table_info()
     for table_name, fields in sorted(info.items()):
         if table is None or table == table_name:
+            print('checking', table_name)
             for field_desc in fields:
                 if field is None or field == field_desc['name']:
+                    print('   %s:' % field_desc['name'], end='')
                     # remove empty leafs
                     branch = Path(field_desc['path'])
+                    removed = 0
                     for leaf in branch.listdir():
                         if not (branch/leaf).listdir():
                             branch.rmdir(leaf)
+                            removed += 1
+                    print('  %d removed' % removed)
 
 
 @Command(

@@ -1078,6 +1078,19 @@ class fnx_fs(osv.AbstractModel):
         'fnxfs_folder': fields.char('Folder Name', size=128, help='name of leaf folder'),
         }
 
+    def create(self, cr, uid, values, context=None):
+        id = super(fnx_fs, self).create(cr, uid, values, context=context)
+        if id:
+            self._set_fnxfs_folder(cr, uid, [id], context=context)
+        return id
+
+    def write(self, cr, uid, ids, values, context=None):
+        success = super(fnx_fs, self).write(cr, uid, ids, values, context=context)
+        if success:
+            presence = [f for f in self._fnxfs_path_fields if f in values]
+            if presence:
+                self._set_fnxfs_folder(cr, uid, ids, context=context)
+        return success
 
     def unlink(self, cr, uid, ids, context=None):
         "remove any on-disk files for deleted records"

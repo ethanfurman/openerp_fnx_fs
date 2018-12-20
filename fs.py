@@ -1061,7 +1061,7 @@ class fnx_fs(osv.AbstractModel):
                 self.write(cr, uid, rec['id'], {'fnxfs_folder': should_be}, context=context)
             for field_name, field_column in zip(field_names, columns):
                 base_path = self._fnxfs_root / self._fnxfs_path / field_column.path
-                if actual != should_be:
+                if actual and actual != should_be:
                     # modifying existing record and changing folder-name elements
                     src = base_path/(actual.replace('/','%2f'))
                     dst = base_path/(should_be.replace('/','%2f'))

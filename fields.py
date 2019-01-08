@@ -60,18 +60,20 @@ class files(fields.function):
         # put it all together
         for record in folder_names:
             id = record['id']
+            res[id] = False
             folder = record['fnxfs_folder']
+            if not folder:
+                continue
             disk_folder = folder.replace('/', '%2f')
             web_folder = quote(folder, safe='')
-            res[id] = False
             website_select = (
                     website.value
                     + '/fnxfs/select_files?model=%s&field=%s&rec_id=%s'
                     % (model._name, self._field_name, id)
                     )
-	    display_files = []
+            display_files = []
             if base_path.exists(disk_folder):
-		    display_files = sorted((base_path/disk_folder).listdir())
+                display_files = sorted((base_path/disk_folder).listdir())
             safe_files = [quote(f, safe='') for f in display_files]
             res[id] = template.string(
                     download=website_download,

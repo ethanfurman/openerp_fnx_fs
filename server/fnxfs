@@ -45,7 +45,7 @@ def main():
     print('entering main()')
     global CLIENT_IP, LOGGER, CONFIG
     CONFIG = OrmFile(VIRTUAL_ENV/'config/fnx.ini', section='fnxfsd')
-    log_file = VIRTUAL_ENV/'var/log/openerp/fnxfs.log'
+    log_file = VIRTUAL_ENV/'var/openerp/fnxfs.log'
     fnxfs_lock = PidLockFile('/var/run/fnxfs.pid', timeout=60)
     with open(log_file, 'a'):
         pass

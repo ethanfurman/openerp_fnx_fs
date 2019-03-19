@@ -164,7 +164,7 @@ def cp(
     if max_copies > 0:
         for archive_dst in archive_dsts:
             files = sorted(archive_dst.listdir())
-            for file in files[-max_copies:]:
+            for file in files[:-max_copies]:
                 file.unlink()
 
 

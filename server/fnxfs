@@ -133,7 +133,7 @@ def cp(
     if not src.isdir():
         if not (FS_ROOT/dst).exists() and not force:
             abort('destination file does not exist (use --force to copy anyway)')
-        print('cp: copying %r to %r' % (src, FS_ROOT/dst))
+        print('\ncp: copying %r to %r' % (src, FS_ROOT/dst))
         archive = copy(src, FS_ROOT/dst, timeout)
         archive_dsts.append(archive)
         (FS_ROOT/dst).chown(*OPENERP_IDS)
@@ -163,6 +163,7 @@ def cp(
                 archive_dsts.append(archive)
     if max_copies > 0:
         for archive_dst in archive_dsts:
+            print('checking %r' % archive_dst, verbose=3)
             files = sorted(archive_dst.listdir())
             for file in files[:-max_copies]:
                 file.unlink()
@@ -778,14 +779,19 @@ def copy_needed(src, dst=None):
     """
     return True if the metadata on src differs from the latest archive version's
     """
+    print('src=%r\ndst=%r' % (src, dst), border='box', verbose=3)
     # use st_size, st_atime, st_mtime
     if dst is not None:
         arc = dst
+        if not dst.exists():
+            print('copy_needed: dst does not exist', border='underline', verbose=2)
+            return True
     else:
         archive = ARCHIVE_ROOT / (src - FS_ROOT)
         try:
             arc = sorted(archive.glob('/*'))[-1]
         except IndexError:
+            print('copy_needed: no archives exist', border='underline', verbose=2)
             return True
     print('copy_needed:  arc = %r' % arc)
     src_size = src.stat().st_size
@@ -793,9 +799,9 @@ def copy_needed(src, dst=None):
     if src_size == arc_size:
         # same size, check contents
         if equal_files(src, arc):
-            print('copy_needed:  files are the same')
+            print('copy_needed:  files are the same', border='underline', verbose=2)
             return False
-    print('copy_needed:  files are different')
+    print('copy_needed:  files are different', border='underline', verbose=2)
     return True
 
 def copy(src, dst, timeout):
@@ -816,10 +822,10 @@ def copy(src, dst, timeout):
         # dst.chown(*openerp_ids)
         if copy_needed(dst):
             print('copy:  archiving...', verbose=2)
-            archive_dst = next_archive_name(archive_dst)
-            src.copy(archive_dst)
-            archive_dst.chown(*OPENERP_IDS)
-            archive_dst.chmod(0644)
+            archive_dst_file = next_archive_name(archive_dst)
+            src.copy(archive_dst_file)
+            archive_dst_file.chown(*OPENERP_IDS)
+            archive_dst_file.chmod(0644)
     return archive_dst
 
 def next_archive_name(archive_path):

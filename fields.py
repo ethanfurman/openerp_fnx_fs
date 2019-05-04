@@ -21,8 +21,27 @@ class files(fields.function):
                         '%s: setting %r is not allowed'
                         % (kwds.get('string', '<unknown>'), setting)
                         )
-        super(files, self).__init__(False, readonly=True, type='html', **kwds)
+        super(files, self).__init__(False, readonly=True, type='html', fnct_search=self._search_files, **kwds)
         self.path = path
+
+    def _search_files(self, model, cr, uid, obj=None, name=None, domain=None, context=None):
+        records = model.read(cr, uid, [(1,'=',1)], fields=['id', name], context=context)
+        field, op, criterion = domain[0]
+        ids = []
+        for rec in records:
+            if op == '=' and rec[field] == criterion:
+                ids.append(rec['id'])
+                continue
+            if op == '!=' and rec[field] != criterion:
+                ids.append(rec['id'])
+                continue
+            if rec[field] is False:
+                continue
+            elif op == 'ilike' and criterion.lower() in rec[field].lower():
+                ids.append(rec['id'])
+            elif op == 'not ilike' and criterion.lower() not in rec[field].lower():
+                ids.append(rec['id'])
+        return [('id','in',ids)]
 
     def get(self, cr, model, ids, name, uid=False, context=None, values=None):
         if isinstance(ids, (int, long)):

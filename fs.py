@@ -1149,7 +1149,7 @@ class fnx_fs(osv.AbstractModel):
             res.append(paths)
             for f in fields:
                 column = self._all_columns[f].column
-                paths[f] = base_paths[f] / name
+                paths[f] = base_paths[f] / name.replace('/','%2f')
         return res
 
 

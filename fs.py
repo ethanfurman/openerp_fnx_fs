@@ -1127,6 +1127,32 @@ class fnx_fs(osv.AbstractModel):
             res[record['id']] = record[rec_name]
         return res
 
+    def fnxfs_get_paths(self, cr, uid, ids, fields, context=None):
+        if not fields:
+            raise ERPError('Programmer Error', 'no fields specified')
+        base_paths = {}
+        for f in fields:
+            if f not in self._all_columns:
+                raise ERPError('Programmer Error', '%r not in table %s' % (f, self._name))
+            column = self._all_columns[f].column
+            if not isinstance(column, files):
+                raise ERPError('Programmer Error', 'column %r is not an fnxfs files field')
+            base_paths[f] = Path(self._fnxfs_root)/self._fnxfs_path/column.path
+        if isinstance(ids, (int, long)):
+            ids = [ids]
+        res = []
+        for id, name in self.fnxfs_folder_name(
+                self.read(
+                    cr, uid, ids, fields=self._fnxfs_path_fields, context=context
+            )).items():
+            paths = {'id': id}
+            res.append(paths)
+            for f in fields:
+                column = self._all_columns[f].column
+                paths[f] = base_paths[f] / name
+        return res
+
+
     def fnxfs_field_info(self, cr, uid, ids, field_name, context=None):
         "return (permissions, [(root, trunk, branch, leaf), ...]) for each record id"
         res = []

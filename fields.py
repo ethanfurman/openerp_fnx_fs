@@ -93,8 +93,6 @@ class files(fields.function):
             display_files = []
             if base_path.exists(disk_folder):
                 display_files = sorted((base_path/disk_folder).listdir())
-            if not display_files:
-                continue
             safe_files = [quote(f, safe='') for f in display_files]
             res[id] = template.string(
                     download=website_download,

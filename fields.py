@@ -3,7 +3,6 @@ import logging
 import re
 from osv import fields
 from requests.utils import quote
-from xaml import Xaml
 
 _logger = logging.getLogger(__name__)
 
@@ -67,7 +66,6 @@ class files(fields.function):
                 context=context,
                 )[0]
         website_download = website.value + '/fnxfs/download'
-        template = Xaml(file_list).document.pages[0]
         leaf_path = Path(model._fnxfs_path)/self.path
         base_path = model._fnxfs_root / leaf_path
         folder_names = model.read(
@@ -103,7 +101,7 @@ class files(fields.function):
             if base_path.exists(disk_folder):
                 display_files = sorted((base_path/disk_folder).listdir())
             safe_files = [quote(f, safe='') for f in display_files]
-            res[id] = template.string(
+            res[id] = create_html(
                     download=website_download,
                     path=leaf_path,
                     folder=web_folder,
@@ -117,18 +115,36 @@ class files(fields.function):
     def set(self, cr, obj, id, name, value, user=None, context=None):
         pass
 
-file_list = '''
-~div
-    ~ul
-        -for wfile, dfile in zip(args.web_files, args.display_files):
-            -path = '%s?path=%s&folder=%s&file=%s' % (args.download, args.path, args.folder, wfile)
-            ~li
-                ~a href=path target='_blank': =dfile
-    ~br
-    -if args.permissions == 'write/unlink':
-        ~a href=args.select target='_blank': Add/Delete files...
-    -elif args.permissions == 'write':
-        ~a href=args.select target='_blank': Add files...
-    -elif args.permissions == 'unlink':
-        ~a href=args.select target='_blank': Delete files...
-'''
+def create_html(download, path, folder, display_files, web_files, select, permissions):
+    result = empty_header
+    if display_files:
+        result = full_header
+        for wfile, dfile in zip(web_files, display_files):
+            file_link = '%s?path=%s&folder=%s&file=%s' % (download, path, folder, wfile)
+            li = line % (file_link, dfile)
+            result += li
+        result += '''    </ul>    <br>\n'''
+    if permissions == 'write/unlink':
+        result += add_delete % (select, )
+    elif permissions == 'write':
+        result += add % (select, )
+    elif permissions == 'unlink':
+        result += delete % (select, )
+    result += footer
+    return result
+
+
+
+full_header = '''<div>\n    <ul>\n'''
+
+empty_header = '''<div>\n'''
+
+line = '''        <li><a href="%s" target='_blank'>%s</a></li>\n'''
+
+add_delete = '''    <a href="%s" target="_blank">Add/Delete files...</a>\n'''
+
+add = '''    <a href="%s" target="_blank">Add files...</a>\n'''
+
+delete = '''    <a href="%s" target="_blank">Delete files...</a>\n'''
+
+footer = '''</div>'''

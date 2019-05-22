@@ -1,11 +1,13 @@
 from antipathy import Path
 import logging
+import re
 from osv import fields
 from requests.utils import quote
 from xaml import Xaml
 
 _logger = logging.getLogger(__name__)
 
+empty = re.compile('^<div>\s*<a href=')
 
 class files(fields.function):
     "shows files at a certain location"
@@ -29,17 +31,24 @@ class files(fields.function):
         field, op, criterion = domain[0]
         ids = []
         for rec in records:
-            if op == '=' and rec[field] == criterion:
+            data = rec[field]
+            if criterion is False:
+                # is set / is not set
+                if empty.match(data):
+                    data = False
+            else:
+                # = and != don't make sense, convert to contains
+                if op == '=':
+                    op = 'ilike'
+                else:
+                    op = 'not ilike'
+            if op == '=' and data == criterion:
                 ids.append(rec['id'])
-                continue
-            if op == '!=' and rec[field] != criterion:
+            elif op == '!=' and data != criterion:
                 ids.append(rec['id'])
-                continue
-            if rec[field] is False:
-                continue
-            elif op == 'ilike' and criterion.lower() in rec[field].lower():
+            elif op == 'ilike' and criterion.lower() in data.lower():
                 ids.append(rec['id'])
-            elif op == 'not ilike' and criterion.lower() not in rec[field].lower():
+            elif op == 'not ilike' and criterion.lower() not in data.lower():
                 ids.append(rec['id'])
         return [('id','in',ids)]
 

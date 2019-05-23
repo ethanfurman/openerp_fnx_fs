@@ -119,12 +119,13 @@ class files(fields.function):
 
 file_list = '''
 ~div
-    ~ul
-        -for wfile, dfile in zip(args.web_files, args.display_files):
-            -path = '%s?path=%s&folder=%s&file=%s' % (args.download, args.path, args.folder, wfile)
-            ~li
-                ~a href=path target='_blank': =dfile
-    ~br
+    -if args.display_files:
+        ~ul
+            -for wfile, dfile in zip(args.web_files, args.display_files):
+                -path = '%s?path=%s&folder=%s&file=%s' % (args.download, args.path, args.folder, wfile)
+                ~li
+                    ~a href=path target='_blank': =dfile
+        ~br
     -if args.permissions == 'write/unlink':
         ~a href=args.select target='_blank': Add/Delete files...
     -elif args.permissions == 'write':

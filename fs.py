@@ -1021,7 +1021,7 @@ class fnx_fs(osv.AbstractModel):
             _logger.error('%s : too many files fields have no path: %s', self._name, ', '.join(sorted(field_paths)))
 
     def _auto_init(self, cr, context=None):
-        super(fnx_fs, self)._auto_init(cr, context)
+        res = super(fnx_fs, self)._auto_init(cr, context)
         if not self._fnxfs_root.exists(self._fnxfs_path):
             self._fnxfs_root.makedirs(self._fnxfs_path)
         if self.__class__.__name__ != 'fnx_fs':
@@ -1035,6 +1035,7 @@ class fnx_fs(osv.AbstractModel):
                         path.mkdir()
             if not found:
                 _logger.error('table %r inherits from model <fnx_fs.fs> but has no <files> fields' % self._name)
+        return res
 
     def _set_fnxfs_folder(self, cr, uid, ids, context=None):
         "calculate and save leaf folder name; possibly rename existing folder"

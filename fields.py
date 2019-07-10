@@ -93,7 +93,11 @@ class files(fields.function):
             if not folder:
                 continue
             disk_folder = folder.replace('/', '%2f')
-            web_folder = quote(folder, safe='')
+            try:
+                web_folder = quote(folder.encode('utf-8'), safe='')
+            except KeyError:
+                _logger.exception('bad name: %s( %r )', type(folder), folder)
+                raise
             website_select = (
                     website.value
                     + '/fnxfs/select_files?model=%s&field=%s&rec_id=%s'

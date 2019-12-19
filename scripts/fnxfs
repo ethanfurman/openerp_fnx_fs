@@ -59,6 +59,7 @@ def main(host=HOST, db=DB, user=USER, pw=''):
         tables=Spec('table(s) to initialize', ),
         )
 def initialize(*tables):
+    "add folder names to records for newly added files fields"
     for table in tables:
         model = openerp.get_model(table)
         ids = model.search([('id','!=',0)], context={'active_test':False})
@@ -71,6 +72,7 @@ def initialize(*tables):
         field=('field to check', ),
         )
 def file_paths(table=None, field=None):
+    "display all tables with fnxfs.files fields and their paths"
     info = openerp.get_model('fnx_fs.fs', transient=True).fnxfs_table_info()
     for table_name, fields in sorted(info.items()):
         if table is None or table == table_name:
@@ -90,6 +92,7 @@ def file_paths(table=None, field=None):
         field=('field to check', ),
         )
 def prune(table=None, field=None):
+    "remove empty directories"
     info = openerp.get_model('fnx_fs.fs', transient=True).fnxfs_table_info()
     for table_name, fields in sorted(info.items()):
         if table is None or table == table_name:

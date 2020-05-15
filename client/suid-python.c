@@ -1,30 +1,39 @@
-/* suid-python version 0.96
+/* suid-python version 0.98
  *   by Steven Elliott <selliott4@austin.rr.com>
  *   enhanced by Python List [discussion thread at
- *     https://mail.python.org/pipermail/python-list/2014-April/670761.html ]
+ *     https://mail.python.org/pipermail/python-list/2014-April/670768.html]
+ *   with virtualenv support added by Ethan Furman <ethan@stoneleaf.us>
+ *
+ * Last update: 2017-11-07
  *
  * A program to securely run Python scripts with the setuid bits set on the
  * script applied to the resulting Python process as if the Python script was
- * an executable.  This utility could probably be easily adapted to other
- * scripting languages.
+ * an executable.  Adding --virtualenv on the shebang line requires an active
+ * virtual environment for the script to run.  The virtual env must be based
+ * in the /opt tree.  The virtualenv to use may be specified: e.g.
+ *   --virtualenv=/opt/my_env
+ * will activate /opt/my_env before starting Python.  Note that activation
+ * consists of setting the VIRTUAL_ENV environment and prepending the
+ * virtualenv path to PATH.
  *
  * Install this program by building it with
  *   gcc -o suid-python suid-python.c
  * then copy it to a secure directory
  *   cp suid-python /usr/local/bin
- * and then set the ownership to root setuid bit
+ *   cd /usr/local/bin
+ * and then set the ownership to root setuid/gid bits
  *   chown root.root suid-python
- *   chmod 755 suid-python
- *   chmod u+s suid-python
+ *   chmod 6755 suid-python
  *
  * Try it by creating a secure Python script that starts with
- *   #!/usr/bin/env suid-python
+ *   #!/usr/local/sbin/suid-python
  * that is to run as a user other than the invoking user.  Set that user and
  * corresponding setuid bits, and then run it.
  *
  * This program is subject to the same open source license as Python:
  *   http://www.python.org/2.4.2/license.html
  */
+
 
 #include <errno.h>
 #include <libgen.h>
@@ -43,16 +52,18 @@
  */
 #define ISEC_ALLOWED     0      /* Isecure directories. */
 #define STICKY_ALLOWED   0      /* Consider sticky bits, such as /tmp */
-#define SWITCHES_ALLOWED 0      /* Python switches, such as -i */
 
 #define NOBODY "nobody"
 #define PYTHON "python"
-#define SAFE_PATH "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:" \
+#define SAFE_PATH "/usr/local/sbin:/usr/local/bin:/sbin:/bin:" \
                   "/usr/sbin:/usr/bin:/usr/X11R6/bin"
+#define SAFE_ENV "/opt/"
+#define USE_VIRTUAL_ENV "--virtualenv"
+#define SET_VIRTUAL_ENV "--virtualenv="
 
 /* Globals */
 
-/* Harmful environment variables on Linux.  Other OSs may have other 
+/* Harmful environment variables on Linux.  Other OSs may have other
  * variables.
  */
 static char *bad_prefixes[] = { "IFS", "LD_", "PATH", "PYTHON", NULL };
@@ -71,11 +82,16 @@ static int script_sgid_set;
 static int script_suid_set;
 static uid_t script_uid;
 struct stat script_stat;
+char *virtualenv_python;
+char *virtualenv_path;
+char *new_virtualenv;
+static int virtualenv = 0;
+char **new_envp;
 
 void
 usage(char *name)
 {
-    fprintf(stderr, "Usage: %s suid-script [arg1 [arg2 ..]]\n",
+    fprintf(stderr, "Usage: %s [--virtualenv] suid-script [arg1 [arg2 ..]]\n",
             basename(name));
 }
 
@@ -128,26 +144,47 @@ malloc_abort(size_t size)
 /* Like seteuid() and setegid(), but abort if we can't set it. */
 
 void
-setegid_abort(uid_t egid)
+setgid_abort(uid_t egid)
 {
-    if (setegid(egid) == -1)
+    if (egid)
     {
-        fprintf(stderr, "Could not set the EGID to %d.  errno=%d\n",
-                egid, errno);
-        exit(1);
+        if (setgid(egid) == -1)
+        {
+            fprintf(stderr, "Could not set the GID to %d.  errno=%d\n",
+                    egid, errno);
+            exit(1);
+        }
+    } else {
+        if (setegid(egid) == -1)
+        {
+            fprintf(stderr, "Could not set the GID to %d.  errno=%d\n",
+                    egid, errno);
+            exit(1);
+        }
     }
 }
 
 void
-seteuid_abort(uid_t euid)
+setuid_abort(uid_t euid)
 {
-    if (seteuid(euid) == -1)
+    if (euid)
     {
-        fprintf(stderr, "Could not set the EUID to %d.  errno=%d\n",
-                euid, errno);
-        exit(1);
+        if (setuid(euid) == -1)
+        {
+            fprintf(stderr, "Could not set the UID to %d.  errno=%d\n",
+                    euid, errno);
+            exit(1);
+        }
+    } else {
+        if (seteuid(euid) == -1)
+        {
+            fprintf(stderr, "Could not set the UID to %d.  errno=%d\n",
+                    euid, errno);
+            exit(1);
+        }
     }
 }
+
 
 char *
 strdup_abort(char *old_str)
@@ -176,7 +213,7 @@ remove_env_prefix(char **envp, char *prefix)
     char **envp_read;
     char **envp_write;
     int prefix_len = strlen(prefix);
-    int removed_count = 0;
+    int removed_count = 0, kept_count = 0;
 
     envp_write = envp;
     for (envp_read = envp; *envp_read; envp_read++)
@@ -186,6 +223,8 @@ remove_env_prefix(char **envp, char *prefix)
             /* Step past the environment variable that we don't want. */
             removed_count++;
             continue;
+        } else {
+            kept_count += 1;
         }
 
         if (envp_read != envp_write)
@@ -203,23 +242,61 @@ remove_env_prefix(char **envp, char *prefix)
                ((char *) envp_read) - ((char *) envp_write));
     }
 
-    return removed_count;
+    return kept_count;
 }
 
+/* Create a new environment with room for all existing variables, plus new
+ * VIRTUAL_ENV variable (if specified in command/shebang line). */
 void
-put_env(char **envp, char *string)
+create_env(char **envp, int size, char *ve)
 {
+    char **old_envp_read;
+    char **new_envp_write;
     char **envp_step;
+    char *new_path;
 
-    /* Search for the null at the end. */
-    for (envp_step = envp; *envp_step; envp_step++);
+    new_envp = malloc_abort((size + 3) * sizeof (char *));
 
-    *(envp_step++) = string;
-    *envp_step = 0;
+    /* copy old environmenet to new one */
+    for (
+            old_envp_read = envp, new_envp_write = new_envp;
+            *old_envp_read;
+            old_envp_read++, new_envp_write++
+            )
+    {
+        *new_envp_write = *old_envp_read;
+    }
+
+    /* add PATH and, if necessary, VIRTUAL_ENV */
+    if (virtualenv)
+    {
+        new_path = (char *) malloc_abort(
+                strlen(virtualenv_path) + strlen(SAFE_PATH) + sizeof (char) * 6
+                );
+        strcpy(new_path, "PATH=");
+        strcat(new_path, (char *) virtualenv_path);
+        strcat(new_path, ":");
+        strcat(new_path, SAFE_PATH);
+        if (virtualenv == 2)
+        {
+            new_virtualenv = (char *) malloc_abort(
+                    strlen(ve) + sizeof (char) * 13
+                    );
+            strcpy(new_virtualenv, "VIRTUAL_ENV=");
+            strcat(new_virtualenv, (char *) ve);
+            *new_envp_write++ = new_virtualenv;
+        }
+    } else {
+        new_path = (char *) malloc_abort(strlen(SAFE_PATH) + sizeof (char) * 5);
+        strcpy(new_path, "PATH=");
+        strcat(new_path, SAFE_PATH);
+    }
+    *(new_envp_write++) = new_path;
+    *new_envp_write = NULL;
 }
 
 /* Determine if a script is secure by walking the directory structure and
- * making sure it is not world writable and that it is not a symlink.  
+ * making sure it is not world writable and that it is not a symlink.
  * This script sets various global variables that main() depends on.
  */
 int
@@ -242,8 +319,8 @@ script_secure(char *script, int do_abort)
     else
     {
         script_cwd = getcwd_abort(NULL, 0);     /* Works on non-Linux? */
-        fq_script = (char *) malloc_abort(strlen(script_cwd) + 1 +
-                                          strlen(script) + 1);
+        fq_script = (char *) malloc_abort(strlen(script_cwd) + sizeof (char) +
+                                          strlen(script) + sizeof (char));
         sprintf(fq_script, "%s/%s", script_cwd, script);
         free(script_cwd);
     }
@@ -310,10 +387,14 @@ script_secure(char *script, int do_abort)
         }
 
         /* Make sure that a non-root user other than the owner of the script
-         * has created a copy of the script in another directory by
+         * has not created a copy of the script in another directory by
          * hard-linking.
          */
-        if (script_stat.st_uid && (script_stat.st_uid != script_uid))
+        if (
+                !virtualenv
+                && script_stat.st_uid
+                && (script_stat.st_uid != script_uid)
+                )
         {
             fprintf(stderr, "%s is not owned by either same user as %s or "
                     "root\n", fq_script, script);
@@ -323,7 +404,7 @@ script_secure(char *script, int do_abort)
         /* Similar to the above, but for groups.  There is only a risk of
          * doing bad things with sgid if it is set.
          */
-        if (script_sgid_set && script_stat.st_gid &&
+        if (!virtualenv && script_sgid_set && script_stat.st_gid &&
             (script_stat.st_gid != script_gid))
         {
             fprintf(stderr, "%s is not owned by either same group as %s or "
@@ -351,7 +432,7 @@ script_secure(char *script, int do_abort)
          * on systems that use user private groups (umask of 002), but its
          * a necessary check to make sure things are secure.
          */
-        if ((S_IWGRP & script_stat.st_mode) && !sticky_bit)
+        if (!virtualenv && (S_IWGRP & script_stat.st_mode) && !sticky_bit)
         {
             fprintf(stderr, "%s is group writable\n", fq_script);
             goto script_failed;
@@ -400,6 +481,30 @@ script_secure(char *script, int do_abort)
     return 0;
 }
 
+void
+check_virtual_env(char *ve)
+{
+    if (ve == NULL)
+    {
+        if (!(ve = getenv("VIRTUAL_ENV"))) {
+            fprintf(stderr, "no virtual_env active\n");
+            goto no_virtual_env;
+        }
+    }
+    if (strstr(ve, SAFE_ENV) != ve) {
+        fprintf(stderr, "virtual env not in /opt/\n");
+        goto no_virtual_env;
+    }
+    virtualenv_python = (char *) malloc_abort(strlen(ve) + sizeof (char) * 12);
+    sprintf(virtualenv_python, "%s/bin/python", ve);
+    virtualenv_path = (char *) malloc_abort(strlen(ve) + sizeof (char) * 4);
+    sprintf(virtualenv_path, "%s/bin", ve);
+    return;
+
+  no_virtual_env:
+    exit(1);
+}
+
 int
 main(int argc, char **argv, char **envp)
 {
@@ -408,8 +513,9 @@ main(int argc, char **argv, char **envp)
     char **safe_argv;
     char **safe_env;
     char *script;
+    char *ve = NULL;
     int real_python_len;
-    int removed_count = 0;
+    int removed_count = 0, kept_count = 0;
     int script_idx;
 
     if (argc < 2)
@@ -421,31 +527,37 @@ main(int argc, char **argv, char **envp)
     /* Unset dangerous environment variables. */
     for (bad_prefix_ptr = bad_prefixes; *bad_prefix_ptr; bad_prefix_ptr++)
     {
-        removed_count += remove_env_prefix(envp, *bad_prefix_ptr);
+        kept_count = remove_env_prefix(envp, *bad_prefix_ptr);
     }
-
-    /* Set the path to a known safe value. */
-    if (!removed_count)
-    {
-        fprintf(stderr, "There is no room in envp to set the new path.\n");
-        exit(1);
-    }
-    put_env(envp, SAFE_PATH);
 
     /* Assume the script is the first non-switch. */
     for (script_idx = 1; script_idx < argc; script_idx++)
     {
         if (*argv[script_idx] == '-')
         {
-            /* Reject all switches so that it is not possible to just run
-             *     suid-python -i some_script
-             * Alternatively the switches can be ignored.
+            /* Any specified switches are for suid-python.
+             * Current switches:
+             *     --virtualenv --> run the script using the python in the
+             *                       active virtual-env
              */
-#if ! SWITCHES_ALLOWED
-            fprintf(stderr, "The command line python switch '%s' is not "
-                    "permitted.\n", argv[script_idx]);
+            if (strcmp(USE_VIRTUAL_ENV, argv[script_idx]) == 0)
+            {
+                virtualenv = 1;
+            }
+            else if (
+                    (ve = strstr(argv[script_idx], SET_VIRTUAL_ENV))
+                    == argv[script_idx]
+                    )
+            {
+                virtualenv = 2;
+                ve += sizeof (char) * 13;
+            }
+            else
+            {
+                fprintf(stderr, "The suid-python switch '%s' is not "
+                    "recognized.\n", argv[script_idx]);
             exit(1);
-#endif
+            }
         }
         else
         {
@@ -460,6 +572,17 @@ main(int argc, char **argv, char **envp)
     }
     script = argv[script_idx];
 
+    /* Check if script is running in a virtual env */
+    if (virtualenv)
+    {
+        check_virtual_env(ve);
+    }
+
+    /* Create new environment, setting the path to a known safe value, and
+     * possible including virtualenv settings. */
+    create_env(envp, kept_count, ve);
+
+
     /* Make sure that the scripts directories are secure and that symlink
      * attacks are not possible.
      */
@@ -468,35 +591,46 @@ main(int argc, char **argv, char **envp)
     /* For each mode where the setuid bit is set set the corresponding id
      * on the file, otherwise revert to the invoking user.  Group is done
      * before user so this script will still have permission to do it.
+     *
+     * Instead of setting the effective group/user, the actual group/user
+     * is set for non-root uids due to a bug with pty.fork when the effective
+     * user is not root.
      */
 
     if (script_sgid_set)
     {
-        setegid_abort(script_gid);
+        setgid_abort(script_gid);
     }
     else
     {
-        setegid_abort(getgid());
+        setgid_abort(getgid());
     }
 
     if (script_suid_set)
     {
-        seteuid_abort(script_uid);
+        setuid_abort(script_uid);
     }
     else
     {
-        seteuid_abort(getuid());
+        setuid_abort(getuid());
     }
 
     /* Arguments "python suid-script arg1 arg2 ..." for python. */
     safe_argv = &argv[script_idx - 1];
     safe_argv[0] = PYTHON;
 
-    /* Try python in two safe locations and then give up. */
-    execve("/usr/local/bin/" PYTHON, safe_argv, envp);
-    execve("/usr/bin/" PYTHON, safe_argv, envp);
-
-    fprintf(stderr, "Unable to exec python.  errno=%d\n", errno);
+    if (virtualenv)
+    {
+        /* try to run the virtual-env python */
+        safe_argv[0] = virtualenv_python;
+        execve(virtualenv_python, safe_argv, new_envp);
+    }
+    else
+    {
+        /* Try python in two safe locations and then give up. */
+        execve("/usr/local/bin/" PYTHON, safe_argv, new_envp);
+        execve("/usr/bin/" PYTHON, safe_argv, new_envp);
+    }
 
     return 1;
 }

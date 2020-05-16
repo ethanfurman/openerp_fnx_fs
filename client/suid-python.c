@@ -9,8 +9,8 @@
  * A program to securely run Python scripts with the setuid bits set on the
  * script applied to the resulting Python process as if the Python script was
  * an executable.  Adding --virtualenv on the shebang line requires an active
- * virtual environment for the script to run.  The virtual env must be based
- * in the /opt tree.  The virtualenv to use may be specified: e.g.
+ * virtual environment for the script to run.  The virtualenv to use may be
+ * specified: e.g.
  *   --virtualenv=/opt/my_env
  * will activate /opt/my_env before starting Python.  Note that activation
  * consists of setting the VIRTUAL_ENV environment and prepending the
@@ -57,7 +57,6 @@
 #define PYTHON "python"
 #define SAFE_PATH "/usr/local/sbin:/usr/local/bin:/sbin:/bin:" \
                   "/usr/sbin:/usr/bin:/usr/X11R6/bin"
-#define SAFE_ENV "/opt/"
 #define USE_VIRTUAL_ENV "--virtualenv"
 #define SET_VIRTUAL_ENV "--virtualenv="
 
@@ -72,7 +71,7 @@ static char *bad_prefixes[] = { "IFS", "LD_", "PATH", "PYTHON", NULL };
  * be local and that don't have the "nosuid" mount option set).
  */
 #if ! ISEC_ALLOWED
-static char *trusted_dirs[] = { "/bin/", "/boot/", "/etc/", "/lib/", "/opt/",
+static char *trusted_dirs[] = { "/bin/", "/boot/", "/etc/", "/lib/",
     "/root/", "/sbin/", "/usr/", NULL
 };
 #endif
@@ -82,6 +81,7 @@ static int script_sgid_set;
 static int script_suid_set;
 static uid_t script_uid;
 struct stat script_stat;
+struct stat ve_python_stat;
 char *virtualenv_python;
 char *virtualenv_path;
 char *new_virtualenv;
@@ -111,6 +111,18 @@ getcwd_abort(char *buf, size_t size)
     }
 
     return cwd;
+}
+
+int
+stat_abort(const char *file_name, struct stat *buf)
+{
+    if (stat(file_name, buf) == -1)
+    {
+        fprintf(stderr, "Could not stat %s.  errno=%d\n", file_name, errno);
+        exit(1);
+    }
+
+    return 0;
 }
 
 int
@@ -295,6 +307,41 @@ create_env(char **envp, int size, char *ve)
     *new_envp_write = NULL;
 }
 
+/* Determine if a virtualenv python is secure by walking the
+ * directory structure and making sure it is not world writable
+ * and that it is not a symlink.
+ * virtualenv_python
+ */
+int
+ve_python_secure(char *fq_python, int do_abort)
+{
+    if (strstr(fq_python, ".."))
+    {
+        /* It may not be possible to do anything bad with paths with ".." in
+         * them, but there is no good reason to allow it.
+         */
+        fprintf(stderr, "%s contains '..'\n", fq_python);
+        goto script_failed;
+    }
+
+    stat_abort(fq_python, &ve_python_stat);
+
+    /* Make sure that the virtualenv python is owned by root */
+    if ( ve_python_stat.st_uid != 0  || ve_python_stat.st_gid != 0 )
+    {
+        fprintf(stderr, "%s must be owned by root and root's group\n", fq_python);
+        goto script_failed;
+    }
+
+    return 1;
+
+  script_failed:
+    if (do_abort)
+    {
+        exit(1);
+    }
+    return 0;
+}
 /* Determine if a script is secure by walking the directory structure and
  * making sure it is not world writable and that it is not a symlink.
  * This script sets various global variables that main() depends on.
@@ -379,20 +426,26 @@ script_secure(char *script, int do_abort)
 
             if (!*trusted_dir)
             {
+                /* check for virtualenv */
+                if (virtualenv && strncmp(virtualenv_path, fq_script, strlen(virtualenv_path)))
+                {
+                    goto good_path;
+                }
                 fprintf(stderr, "%s is not in a trusted directory\n",
                         fq_script);
                 goto script_failed;
             }
 #endif
+
         }
 
+  good_path:
         /* Make sure that a non-root user other than the owner of the script
          * has not created a copy of the script in another directory by
          * hard-linking.
          */
         if (
-                !virtualenv
-                && script_stat.st_uid
+                script_stat.st_uid
                 && (script_stat.st_uid != script_uid)
                 )
         {
@@ -404,14 +457,13 @@ script_secure(char *script, int do_abort)
         /* Similar to the above, but for groups.  There is only a risk of
          * doing bad things with sgid if it is set.
          */
-        if (!virtualenv && script_sgid_set && script_stat.st_gid &&
+        if (script_sgid_set && script_stat.st_gid &&
             (script_stat.st_gid != script_gid))
         {
             fprintf(stderr, "%s is not owned by either same group as %s or "
                     "the root group\n", fq_script, script);
             goto script_failed;
         }
-
 #if STICKY_ALLOWED
         sticky_bit = (S_ISVTX & script_stat.st_mode) ? 1 : 0;
 #else
@@ -432,7 +484,7 @@ script_secure(char *script, int do_abort)
          * on systems that use user private groups (umask of 002), but its
          * a necessary check to make sure things are secure.
          */
-        if (!virtualenv && (S_IWGRP & script_stat.st_mode) && !sticky_bit)
+        if ((S_IWGRP & script_stat.st_mode) && !sticky_bit)
         {
             fprintf(stderr, "%s is group writable\n", fq_script);
             goto script_failed;
@@ -490,10 +542,6 @@ check_virtual_env(char *ve)
             fprintf(stderr, "no virtual_env active\n");
             goto no_virtual_env;
         }
-    }
-    if (strstr(ve, SAFE_ENV) != ve) {
-        fprintf(stderr, "virtual env not in /opt/\n");
-        goto no_virtual_env;
     }
     virtualenv_python = (char *) malloc_abort(strlen(ve) + sizeof (char) * 12);
     sprintf(virtualenv_python, "%s/bin/python", ve);
@@ -576,6 +624,7 @@ main(int argc, char **argv, char **envp)
     if (virtualenv)
     {
         check_virtual_env(ve);
+        ve_python_secure(virtualenv_python, 1);
     }
 
     /* Create new environment, setting the path to a known safe value, and

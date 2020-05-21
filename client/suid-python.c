@@ -71,7 +71,7 @@ static char *bad_prefixes[] = { "IFS", "LD_", "PATH", "PYTHON", NULL };
  * be local and that don't have the "nosuid" mount option set).
  */
 #if ! ISEC_ALLOWED
-static char *trusted_dirs[] = { "/bin/", "/boot/", "/etc/", "/lib/",
+static char *trusted_dirs[] = { "/bin/", "/boot/", "/etc/", "/lib/", "/opt/",
     "/root/", "/sbin/", "/usr/", NULL
 };
 #endif

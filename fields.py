@@ -68,8 +68,8 @@ class files(fields.function):
                 )[0]
         website_download = website.value + '/fnxfs/download'
         template = Xaml(file_list).document.pages[0]
-        leaf_path = Path(model._fnxfs_path)/self.path
-        base_path = model._fnxfs_root / leaf_path
+        leaf_path = Path(model._fnxfs_path)/self.path           # model path / field path
+        base_path = model._fnxfs_root / leaf_path               # anchored path / model path / field path
         folder_names = model.read(
                 cr, uid, ids,
                 fields=['fnxfs_folder'],

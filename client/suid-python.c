@@ -326,13 +326,6 @@ ve_python_secure(char *fq_python, int do_abort)
 
     stat_abort(fq_python, &ve_python_stat);
 
-    fprintf(stdout, "ve_python_secure: %s\n  set uid: %i\n  set gid: %i\n  script uid: %i  gid: %i\n  python uid: %i  gid: %i\n",
-            virtualenv_python,
-            script_suid_set, script_sgid_set,
-            script_uid, script_gid,
-            ve_python_stat.st_uid, ve_python_stat.st_gid
-           );
-
     if ((!script_suid_set) && (!script_sgid_set))
     {
         /* If neither suid bit is set then there is no risk.  Just
@@ -638,7 +631,6 @@ main(int argc, char **argv, char **envp)
         exit(1);
     }
     script = argv[script_idx];
-    fprintf(stdout, "script: %s\n", script);
 
     /* Check if script is running in a virtual env */
     if (virtualenv)

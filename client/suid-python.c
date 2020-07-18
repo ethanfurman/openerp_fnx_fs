@@ -326,10 +326,29 @@ ve_python_secure(char *fq_python, int do_abort)
 
     stat_abort(fq_python, &ve_python_stat);
 
-    /* Make sure that the virtualenv python is owned by root */
-    if ( ve_python_stat.st_uid != 0  || ve_python_stat.st_gid != 0 )
+    fprintf(stdout, "ve_python_secure: %s\n  set uid: %i\n  set gid: %i\n  script uid: %i  gid: %i\n  python uid: %i  gid: %i\n",
+            virtualenv_python,
+            script_suid_set, script_sgid_set,
+            script_uid, script_gid,
+            ve_python_stat.st_uid, ve_python_stat.st_gid
+           );
+
+    if ((!script_suid_set) && (!script_sgid_set))
     {
-        fprintf(stderr, "%s must be owned by root and root's group\n", fq_python);
+        /* If neither suid bit is set then there is no risk.  Just
+         * run the script.
+         */
+        return 0;
+    }
+
+    /* Make sure that the virtualenv python is owned by uid*/
+    if (
+           (script_suid_set && ve_python_stat.st_uid != script_uid)
+           ||
+           (script_sgid_set && ve_python_stat.st_gid != script_gid)
+       )
+    {
+        fprintf(stderr, "%s must be owned by %d:%d\n", fq_python, script_uid, script_gid);
         goto script_failed;
     }
 
@@ -619,12 +638,12 @@ main(int argc, char **argv, char **envp)
         exit(1);
     }
     script = argv[script_idx];
+    fprintf(stdout, "script: %s\n", script);
 
     /* Check if script is running in a virtual env */
     if (virtualenv)
     {
         check_virtual_env(ve);
-        ve_python_secure(virtualenv_python, 1);
     }
 
     /* Create new environment, setting the path to a known safe value, and
@@ -636,6 +655,12 @@ main(int argc, char **argv, char **envp)
      * attacks are not possible.
      */
     script_secure(script, 1);
+
+    /* if set uid/gid and virtual env, ensure python is owned by root or uid/gid */
+    if (virtualenv)
+    {
+        ve_python_secure(virtualenv_python, 1);
+    }
 
     /* For each mode where the setuid bit is set set the corresponding id
      * on the file, otherwise revert to the invoking user.  Group is done

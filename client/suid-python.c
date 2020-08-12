@@ -55,6 +55,10 @@
 
 #define NOBODY "nobody"
 #define PYTHON "python"
+#define PYTHON2 "python2"
+#define PYTHON3 "python3"
+#define USE_PY2 "--py2"
+#define USE_PY3 "--py3"
 #define SAFE_PATH "/usr/local/sbin:/usr/local/bin:/sbin:/bin:" \
                   "/usr/sbin:/usr/bin:/usr/X11R6/bin"
 #define USE_VIRTUAL_ENV "--virtualenv"
@@ -569,14 +573,13 @@ int
 main(int argc, char **argv, char **envp)
 {
     char **bad_prefix_ptr;
-    char *real_python;
     char **safe_argv;
     char **safe_env;
     char *script;
     char *ve = NULL;
-    int real_python_len;
+    int use_py2 = 0, use_py3 = 0;
     int removed_count = 0, kept_count = 0;
-    int script_idx;
+    int script_idx, strstrt;
 
     if (argc < 2)
     {
@@ -596,9 +599,13 @@ main(int argc, char **argv, char **envp)
         if (*argv[script_idx] == '-')
         {
             /* Any specified switches are for suid-python.
-             * Current switches:
+             * Current, mutually exclusive, switches:
+             *     --py2 --> use Python 2
+             *     --py3 --> use Python 3
              *     --virtualenv --> run the script using the python in the
              *                       active virtual-env
+             *     --virtualenv=... --> set the virtualenv, then run the script
+             *                       using that active virtual-env
              */
             if (strcmp(USE_VIRTUAL_ENV, argv[script_idx]) == 0)
             {
@@ -612,11 +619,21 @@ main(int argc, char **argv, char **envp)
                 virtualenv = 2;
                 ve += sizeof (char) * 13;
             }
+            else if (
+                    strcmp(USE_PY2, argv[script_idx]) == 0)
+            {
+                use_py2 = 1;
+            }
+            else if (
+                    strcmp(USE_PY3, argv[script_idx]) == 0)
+            {
+                use_py3 = 1;
+            }
             else
             {
                 fprintf(stderr, "The suid-python switch '%s' is not "
                     "recognized.\n", argv[script_idx]);
-            exit(1);
+                exit(1);
             }
         }
         else
@@ -683,19 +700,42 @@ main(int argc, char **argv, char **envp)
 
     /* Arguments "python suid-script arg1 arg2 ..." for python. */
     safe_argv = &argv[script_idx - 1];
-    safe_argv[0] = PYTHON;
 
     if (virtualenv)
     {
+        safe_argv[0] = PYTHON;
         /* try to run the virtual-env python */
         safe_argv[0] = virtualenv_python;
         execve(virtualenv_python, safe_argv, new_envp);
+        fprintf(stderr, "unable to find/execute %s", virtualenv_python);
+        exit(72);
+    }
+    else if (use_py2)
+    {
+        safe_argv[0] = PYTHON2;
+        /* Try python in two safe locations and then give up. */
+        execve("/usr/bin/" PYTHON2, safe_argv, new_envp);
+        execve("/usr/local/bin/" PYTHON2, safe_argv, new_envp);
+        fprintf(stderr, "unable to find /usr/local/bin/python2 nor /usr/bin/python2\n");
+        exit(72);
+    }
+    else if (use_py3)
+    {
+        safe_argv[0] = PYTHON3;
+        /* Try python in two safe locations and then give up. */
+        execve("/usr/local/bin/" PYTHON3, safe_argv, new_envp);
+        execve("/usr/bin/" PYTHON3, safe_argv, new_envp);
+        fprintf(stderr, "unable to find /usr/local/bin/python3 nor /usr/bin/python3\n");
+        exit(72);
     }
     else
     {
+        safe_argv[0] = PYTHON;
         /* Try python in two safe locations and then give up. */
         execve("/usr/local/bin/" PYTHON, safe_argv, new_envp);
         execve("/usr/bin/" PYTHON, safe_argv, new_envp);
+        fprintf(stderr, "unable to find /usr/local/bin/python nor /usr/bin/python\n");
+        exit(72);
     }
 
     return 1;

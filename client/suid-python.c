@@ -4,7 +4,7 @@
  *     https://mail.python.org/pipermail/python-list/2014-April/670768.html]
  *   with virtualenv support added by Ethan Furman <ethan@stoneleaf.us>
  *
- * Last update: 2017-11-07
+ * Last update: 2020-08-12
  *
  * A program to securely run Python scripts with the setuid bits set on the
  * script applied to the resulting Python process as if the Python script was
@@ -15,6 +15,14 @@
  * will activate /opt/my_env before starting Python.  Note that activation
  * consists of setting the VIRTUAL_ENV environment and prepending the
  * virtualenv path to PATH.
+ *
+ * The python version to run can now be selected between the default version 2
+ * and the default version 3 with
+ *
+ *   --py2
+ *   --py3
+ *
+ * At this point all suid-python switches are mutually exclusive.
  *
  * Install this program by building it with
  *   gcc -o suid-python suid-python.c

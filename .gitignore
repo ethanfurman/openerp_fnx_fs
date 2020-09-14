@@ -2,3 +2,5 @@
 *.xml
 *.sw?
 .*sw?
+client/suid-python
+static/lib/file_upload.html

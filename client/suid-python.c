@@ -346,14 +346,14 @@ ve_python_secure(char *fq_python, int do_abort)
         return 0;
     }
 
-    /* Make sure that the virtualenv python is owned by uid*/
+    /* Make sure that the virtualenv python is owned by root or uid*/
     if (
-           (script_suid_set && ve_python_stat.st_uid != script_uid)
+           (script_suid_set && ve_python_stat.st_uid && ve_python_stat.st_uid != script_uid)
            ||
-           (script_sgid_set && ve_python_stat.st_gid != script_gid)
+           (script_sgid_set && ve_python_stat.st_gid && ve_python_stat.st_gid != script_gid)
        )
     {
-        fprintf(stderr, "%s must be owned by %d:%d\n", fq_python, script_uid, script_gid);
+        fprintf(stderr, "%s must be owned by %d:%d or root\n", fq_python, script_uid, script_gid);
         goto script_failed;
     }
 

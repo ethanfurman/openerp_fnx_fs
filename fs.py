@@ -1213,7 +1213,7 @@ class fnx_fs(osv.AbstractModel):
             res[table_name] = sorted(files_columns, key=lambda d: d['name'])
         return res
 
-class fnx_scan(osv.AbstractClass):
+class fnx_scan(osv.AbstractModel):
     _name = 'fnx_fs.scan'
 
     # to use this in other tables:
@@ -1223,7 +1223,7 @@ class fnx_scan(osv.AbstractClass):
 
     _columns = {
         'queue_scan': fields.boolean('Update with scans'),
-        'fnxfs_scans': files('scans', 'Scanned Documents'),
+        'fnxfs_scans': files('scans', string='Scanned Documents'),
         }
 
     def create(self, cr, user, vals, context=None):
@@ -1267,7 +1267,7 @@ class fnx_scan(osv.AbstractClass):
             name = self.fnxfs_folder_name([record]).pop(id)
             comp_name = name.replace(' ', '')
             context['login'] = user.login
-            context['destination_file'] = '%s_%s' % (comp_name, timestamp)
+            context['destination_file'] = '%s_%s.pdf' % (comp_name, timestamp)
             context['destination_folder'] = os.path.join(root, trunk, branch, leaf)
             context['fnxfs_scan_reference'] = name
             filename = '%s_%s' % (timestamp, comp_name)

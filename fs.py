@@ -1,4 +1,5 @@
 from antipathy import Path
+from datetime import datetime
 from dbf import DateTime, Time, Date
 from VSS.utils import  float
 from VSS.constants import Weekday
@@ -23,6 +24,8 @@ _logger = logging.getLogger(__name__)
 openerp_ids = tuple(pwd.getpwnam('openerp')[2:4])
 
 CONFIG_ERROR = "Configuration not set; check Settings --> Configuration --> FnxFS --> %s."
+
+SCAN_TICKET_PATH = "/home/openerp/sandbox/var/scans"
 
 fs_root = Path(u'%s/var/openerp/fnxfs/' % ROOT_DIR)
 archive_root = Path(u'%s/var/openerp/fnxfs_archive/' % ROOT_DIR)
@@ -1209,3 +1212,77 @@ class fnx_fs(osv.AbstractModel):
                 _logger.warning('table %r has no files columns', table_name)
             res[table_name] = sorted(files_columns, key=lambda d: d['name'])
         return res
+
+class fnx_scan(osv.AbstractClass):
+    _name = 'fnx_fs.scan'
+
+    # to use this in other tables:
+    #
+    # _inherit = [fnx_fs.fs, fnx_fs.scan]
+    # [all of fnx_fs requirements]
+
+    _columns = {
+        'queue_scan': fields.boolean('Update with scans'),
+        'fnxfs_scans': files('scans', 'Scanned Documents'),
+        }
+
+    def create(self, cr, user, vals, context=None):
+        queue_scans = False
+        if 'queue_scan' in vals:
+            queue_scans = vals.pop('queue_scan')
+        new_id = super(fnx_scan, self).create(cr, user, vals, context)
+        if queue_scans:
+            self.write_scan_ticket(cr, user, new_id, context)
+        return new_id
+
+    def write(self, cr, uid, ids, vals, context=None):
+        queue_scans = False
+        if 'queue_scan' in vals:
+            queue_scans = vals.pop('queue_scan')
+            if queue_scans and isinstance(ids, (list, tuple)) and len(ids) > 1:
+                raise ERPError(
+                        'Invalid Option',
+                        'cannot select "Update with scans" when editing multiple records',
+                        )
+        result = super(fnx_scan, self).write(cr, uid, ids, vals, context=context)
+        if queue_scans:
+            self.write_scan_ticket(cr, uid, ids, context)
+        return result
+
+    def write_scan_ticket(self, cr, uid, ids, context):
+        context = (context or {}).copy()
+        if isinstance(ids, (int, long)):
+            ids = [ids]
+        if len(ids) > 1:
+            raise ERPError(
+                    'Invalid Option',
+                    'cannot select "Update with scans" when editing multiple records',
+                    )
+        user = self.pool.get('res.users').browse(cr, uid, uid)
+        for id in ids:
+            # only one id, this only loops once
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S%f')
+            perms, [root, trunk, branch, leaf] = self.fnxfs_field_info(cr, uid, id, 'fnxfs_scans')
+            record = self.browse(cr, uid, id)
+            name = self.fnxfs_folder_name([record]).pop(id)
+            comp_name = name.replace(' ', '')
+            context['login'] = user.login
+            context['destination_file'] = '%s_%s' % (comp_name, timestamp)
+            context['destination_folder'] = os.path.join(root, trunk, branch, leaf)
+            context['fnxfs_scan_reference'] = name
+            filename = '%s_%s' % (timestamp, comp_name)
+            with open(os.path.join(SCAN_TICKET_PATH, filename), 'w') as fh:
+                fh.write('{\n')
+                for key, value in context.items():
+                    fh.write('"%s": "%s",\n' % (key, value))
+                fh.write('}\n')
+
+
+try:
+    if not os.path.exists(SCAN_TICKET_PATH):
+        _logger.error('SCAN_TICKET_PATH %r does not exist', SCAN_TICKET_PATH)
+        _logger.info('creating SCAN_TICKET_PATH %r', SCAN_TICKET_PATH)
+        os.makedirs(SCAN_TICKET_PATH)
+except Exception:
+    _logger.exception('unable to create %r', SCAN_TICKET_PATH)
+

@@ -11,6 +11,8 @@ from osv import osv, fields
 from pytz import timezone
 from scription import Execute, OrmFile
 from subprocess import check_output, CalledProcessError
+from textwrap import dedent
+from xaml import Xaml
 import errno
 import logging
 import os
@@ -1079,8 +1081,44 @@ class fnx_fs(osv.AbstractModel):
                             raise ERPError('Failure', 'Unable to rename %r to %r' % (src, dst))
         return True
 
+    def _get_storage(self, cr, uid, ids, field_name, args, context=None):
+        fields = {}
+        for column_name, column in sorted(self._columns.items()):
+            if isinstance(column, files):
+                fields[column_name] = {
+                        'display': column.string,
+                        # 'db_name': column_name,
+                        'path':(self._fnxfs_root)/self._fnxfs_path/column.path,
+                        }
+        table_xaml = dedent("""\
+                ~html
+                    ~table style='padding=15px;'
+                        ~tr
+                            ~th style='text-align: left; min-width: 150px;': Field
+                            ~th style='text-align: left; min-width: 150px;': Path
+                        -for name, path in sorted(args.values.items()):
+                            ~td style='text-align: left; min-width: 150px;': =name
+                            ~td style='text-align: left; min-width: 150px;': =path
+                """)
+        res = {}
+        for rec in self.read(cr, uid, ids, fields=['fnxfs_folder'], context=context):
+            values = {}
+            for name, column in fields.items():
+                display = column['display']
+                path = column['path']
+                values[display] = '%s/%s' % (path, rec['fnxfs_folder'])
+            doc = Xaml(table_xaml).document.pages[0]
+            html = doc.string(values=values)
+            res[rec['id']] = html
+        return res
+
     _columns = {
         'fnxfs_folder': fields.char('Folder Name', size=128, help='name of leaf folder'),
+        'fnxfs_storage': fields.function(
+            _get_storage,
+            type='html',
+            string='Storage location',
+            help='current directories used for external files'),
         }
 
     def create(self, cr, uid, values, context=None):
@@ -1128,7 +1166,7 @@ class fnx_fs(osv.AbstractModel):
         res = {}
         rec_name = self._rec_name
         for record in records:
-            res[record['id']] = record[rec_name]
+            res[record['id']] = record[rec_name].replace(' ','_')
         return res
 
     def fnxfs_get_paths(self, cr, uid, ids, fields, context=None):
@@ -1187,30 +1225,20 @@ class fnx_fs(osv.AbstractModel):
     def fnxfs_table_info(self, cr, uid, context=None):
         """
            return {
-                table: [
-                   {'db_name': field_name, 'path': root/trunk/branch, 'name': field.name},
-                   {...},
-                   ],
-                table: [ ... ],
-                }
+                   'db_name': {
+                        'display': field_string, 'path': root/trunk/branch/stem/leaf, 'name': field.name,
+                        },
+                   'db_name': {...},
+                   },
         """
         res = {}
-        for table_name in self._fnxfs_tables:
-            table = self.pool.get(table_name)
-            if not table:
-                _logger.warning('table %r not loaded', table_name)
-                continue
-            files_columns = []
-            for column_name, column in sorted(table._columns.items()):
-                if isinstance(column, files):
-                    files_columns.append({
-                            'name': column.string,
-                            'db_name': column_name,
-                            'path': Path(table._fnxfs_root)/table._fnxfs_path/column.path,
-                            })
-            if not files_columns:
-                _logger.warning('table %r has no files columns', table_name)
-            res[table_name] = sorted(files_columns, key=lambda d: d['name'])
+        for column_name, column in sorted(self._columns.items()):
+            if isinstance(column, files):
+                res[column_name] = {
+                        'display': column.string,
+                        # 'db_name': column_name,
+                        'path':(self._fnxfs_root)/self._fnxfs_path/column.path,
+                        }
         return res
 
 class fnx_scan(osv.AbstractModel):
@@ -1222,7 +1250,7 @@ class fnx_scan(osv.AbstractModel):
     # [all of fnx_fs requirements]
 
     _columns = {
-        'queue_scan': fields.boolean('Update with scans'),
+        'fnxfs_queue_scan': fields.boolean('Update with scans'),
         'fnxfs_scans': files('scans', string='Scanned Documents'),
         }
 

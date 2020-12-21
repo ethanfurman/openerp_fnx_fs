@@ -991,6 +991,11 @@ class fnx_fs(osv.AbstractModel):
     _fnxfs_archive = archive_root
     _fnxfs_tables = set()
 
+    # to support auto scan attachments
+    # _columns = {
+    #       'fnxfs_scans': files('<path>', '<Display Name>'),
+    #       }
+
     def __init__(self, pool, cr):
         super(fnx_fs, self).__init__(pool, cr)
         if not self._fnxfs_path_fields:
@@ -1087,8 +1092,7 @@ class fnx_fs(osv.AbstractModel):
             if isinstance(column, files):
                 fields[column_name] = {
                         'display': column.string,
-                        # 'db_name': column_name,
-                        'path':(self._fnxfs_root)/self._fnxfs_path/column.path,
+                        'path': (self._fnxfs_root)/self._fnxfs_path/column.path,
                         }
         table_xaml = dedent("""\
                 ~html
@@ -1097,8 +1101,9 @@ class fnx_fs(osv.AbstractModel):
                             ~th style='text-align: left; min-width: 150px;': Field
                             ~th style='text-align: left; min-width: 150px;': Path
                         -for name, path in sorted(args.values.items()):
-                            ~td style='text-align: left; min-width: 150px;': =name
-                            ~td style='text-align: left; min-width: 150px;': =path
+                            ~tr
+                                ~td style='text-align: left; min-width: 150px;': =name
+                                ~td style='text-align: left; min-width: 150px;': =path
                 """)
         res = {}
         for rec in self.read(cr, uid, ids, fields=['fnxfs_folder'], context=context):
@@ -1114,6 +1119,7 @@ class fnx_fs(osv.AbstractModel):
 
     _columns = {
         'fnxfs_folder': fields.char('Folder Name', size=128, help='name of leaf folder'),
+        'fnxfs_queue_scan': fields.boolean('Update with scans'),
         'fnxfs_storage': fields.function(
             _get_storage,
             type='html',
@@ -1122,18 +1128,62 @@ class fnx_fs(osv.AbstractModel):
         }
 
     def create(self, cr, uid, values, context=None):
+        queue_scans = False
+        if 'queue_scan' in values:
+            queue_scans = values.pop('queue_scan')
         id = super(fnx_fs, self).create(cr, uid, values, context=context)
         if id:
             self._set_fnxfs_folder(cr, uid, [id], context=context)
+        if queue_scans:
+            self.write_scan_ticket(cr, uid, id, context)
         return id
+    
 
     def write(self, cr, uid, ids, values, context=None):
+        queue_scans = False
+        if 'queue_scan' in values:
+            queue_scans = values.pop('queue_scan')
+            if queue_scans and isinstance(ids, (list, tuple)) and len(ids) > 1:
+                raise ERPError(
+                        'Invalid Option',
+                        'cannot select "Update with scans" when editing multiple records',
+                        )
         success = super(fnx_fs, self).write(cr, uid, ids, values, context=context)
         if success:
             presence = [f for f in self._fnxfs_path_fields if f in values]
             if presence:
                 self._set_fnxfs_folder(cr, uid, ids, context=context)
+        if queue_scans:
+            self.write_scan_ticket(cr, uid, ids, context)
         return success
+
+    def write_scan_ticket(self, cr, uid, ids, context):
+        context = (context or {}).copy()
+        if isinstance(ids, (int, long)):
+            ids = [ids]
+        if len(ids) > 1:
+            raise ERPError(
+                    'Invalid Option',
+                    'cannot select "Update with scans" when editing multiple records',
+                    )
+        user = self.pool.get('res.users').browse(cr, uid, uid)
+        for id in ids:
+            # only one id, this only loops once
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S%f')
+            perms, [root, trunk, branch, leaf] = self.fnxfs_field_info(cr, uid, id, 'fnxfs_scans')
+            record = self.browse(cr, uid, id)
+            name = self.fnxfs_folder_name([record]).pop(id)
+            comp_name = name.replace(' ', '')
+            context['login'] = user.login
+            context['destination_file'] = '%s_%s.pdf' % (comp_name, timestamp)
+            context['destination_folder'] = os.path.join(root, trunk, branch, leaf)
+            context['fnxfs_scan_reference'] = name
+            filename = '%s_%s' % (timestamp, comp_name)
+            with open(os.path.join(SCAN_TICKET_PATH, filename), 'w') as fh:
+                fh.write('{\n')
+                for key, value in context.items():
+                    fh.write('"%s": "%s",\n' % (key, value))
+                fh.write('}\n')
 
     def unlink(self, cr, uid, ids, context=None):
         "remove any on-disk files for deleted records"
@@ -1240,70 +1290,6 @@ class fnx_fs(osv.AbstractModel):
                         'path':(self._fnxfs_root)/self._fnxfs_path/column.path,
                         }
         return res
-
-class fnx_scan(osv.AbstractModel):
-    _name = 'fnx_fs.scan'
-
-    # to use this in other tables:
-    #
-    # _inherit = [fnx_fs.fs, fnx_fs.scan]
-    # [all of fnx_fs requirements]
-
-    _columns = {
-        'fnxfs_queue_scan': fields.boolean('Update with scans'),
-        'fnxfs_scans': files('scans', string='Scanned Documents'),
-        }
-
-    def create(self, cr, user, vals, context=None):
-        queue_scans = False
-        if 'queue_scan' in vals:
-            queue_scans = vals.pop('queue_scan')
-        new_id = super(fnx_scan, self).create(cr, user, vals, context)
-        if queue_scans:
-            self.write_scan_ticket(cr, user, new_id, context)
-        return new_id
-
-    def write(self, cr, uid, ids, vals, context=None):
-        queue_scans = False
-        if 'queue_scan' in vals:
-            queue_scans = vals.pop('queue_scan')
-            if queue_scans and isinstance(ids, (list, tuple)) and len(ids) > 1:
-                raise ERPError(
-                        'Invalid Option',
-                        'cannot select "Update with scans" when editing multiple records',
-                        )
-        result = super(fnx_scan, self).write(cr, uid, ids, vals, context=context)
-        if queue_scans:
-            self.write_scan_ticket(cr, uid, ids, context)
-        return result
-
-    def write_scan_ticket(self, cr, uid, ids, context):
-        context = (context or {}).copy()
-        if isinstance(ids, (int, long)):
-            ids = [ids]
-        if len(ids) > 1:
-            raise ERPError(
-                    'Invalid Option',
-                    'cannot select "Update with scans" when editing multiple records',
-                    )
-        user = self.pool.get('res.users').browse(cr, uid, uid)
-        for id in ids:
-            # only one id, this only loops once
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S%f')
-            perms, [root, trunk, branch, leaf] = self.fnxfs_field_info(cr, uid, id, 'fnxfs_scans')
-            record = self.browse(cr, uid, id)
-            name = self.fnxfs_folder_name([record]).pop(id)
-            comp_name = name.replace(' ', '')
-            context['login'] = user.login
-            context['destination_file'] = '%s_%s.pdf' % (comp_name, timestamp)
-            context['destination_folder'] = os.path.join(root, trunk, branch, leaf)
-            context['fnxfs_scan_reference'] = name
-            filename = '%s_%s' % (timestamp, comp_name)
-            with open(os.path.join(SCAN_TICKET_PATH, filename), 'w') as fh:
-                fh.write('{\n')
-                for key, value in context.items():
-                    fh.write('"%s": "%s",\n' % (key, value))
-                fh.write('}\n')
 
 
 try:

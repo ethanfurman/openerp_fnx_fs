@@ -4,7 +4,7 @@
  *     https://mail.python.org/pipermail/python-list/2014-April/670768.html]
  *   with virtualenv support added by Ethan Furman <ethan@stoneleaf.us>
  *
- * Last update: 2020-08-12
+ * Last update: 2021-02-16  (for gcc 9.3.0)
  *
  * A program to securely run Python scripts with the setuid bits set on the
  * script applied to the resulting Python process as if the Python script was
@@ -46,6 +46,7 @@
 #include <errno.h>
 #include <libgen.h>
 #include <pwd.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

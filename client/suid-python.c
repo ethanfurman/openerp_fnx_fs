@@ -182,7 +182,7 @@ setgid_abort(uid_t egid)
     } else {
         if (setegid(egid) == -1)
         {
-            fprintf(stderr, "Could not set the GID to %d.  errno=%d\n",
+            fprintf(stderr, "Could not set the EGID to %d.  errno=%d\n",
                     egid, errno);
             exit(1);
         }
@@ -203,7 +203,7 @@ setuid_abort(uid_t euid)
     } else {
         if (seteuid(euid) == -1)
         {
-            fprintf(stderr, "Could not set the UID to %d.  errno=%d\n",
+            fprintf(stderr, "Could not set the EUID to %d.  errno=%d\n",
                     euid, errno);
             exit(1);
         }

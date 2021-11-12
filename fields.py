@@ -1,6 +1,7 @@
 from antipathy import Path
 import logging
 import re
+from openerp.exceptions import ERPError
 from osv import fields
 from requests.utils import quote
 from xaml import Xaml
@@ -12,7 +13,7 @@ empty = re.compile('^<div>\s*<a href=')
 class files(fields.function):
     "shows files at a certain location"
 
-    def __init__(self, path, **kwds):
+    def __init__(self, path, style='list', sort='alpha', **kwds):
         for setting in (
                 'fnct_inv', 'fnct_inv_arg', 'type', 'fnct_search', 'obj',
                 'store', 'multi', 'readonly', 'manual', 'required', 'domain',
@@ -23,8 +24,25 @@ class files(fields.function):
                         '%s: setting %r is not allowed'
                         % (kwds.get('string', '<unknown>'), setting)
                         )
+        if style == 'list':
+            func = self.show_list
+        elif style == 'images':
+            func = self.show_images
+        else:
+            raise ERPError('Configuration Error', 'valid choices for style are "list" and "images", not %r' % (style, ))
+        if sort == 'alpha':
+            self.sort = lambda name: name
+        elif sort is None:
+            raise ERPError(
+                    "sort must be 'alpha' or a function that takes a fully-qualified file name as an argument (not %r)"
+                    % (sort, )
+                    )
+        else:
+            self.sort = sort
         super(files, self).__init__(False, readonly=True, type='html', fnct_search=self._search_files, **kwds)
         self.path = path
+        self.style = func
+
 
     def _search_files(self, model, cr, uid, obj=None, name=None, domain=None, context=None):
         records = model.read(cr, uid, [(1,'=',1)], fields=['id', name], context=context)
@@ -52,21 +70,49 @@ class files(fields.function):
                 ids.append(rec['id'])
         return [('id','in',ids)]
 
-    def get(self, cr, model, ids, name, uid=False, context=None, values=None):
-        if isinstance(ids, (int, long)):
-            ids = [ids]
+    def show_images(self, model, cr, uid, ids, base_url, context=None):
         res = {}
-        if not ids:
-            return res
         #
         # get on-disk file path
-        ir_config_parameter = model.pool.get('ir.config_parameter')
-        website = ir_config_parameter.browse(
-                cr, uid,
-                [('key','=','web.base.url')],
+        template = Xaml(file_list).document.pages[0]
+        leaf_path = Path(model._fnxfs_path)/self.path           # model path / field path
+        base_path = model._fnxfs_root / leaf_path               # anchored path / model path / field path
+        folder_names = model.read(
+                cr, uid, ids,
+                fields=['fnxfs_folder'],
                 context=context,
-                )[0]
-        website_download = website.value + '/fnxfs/download'
+                )
+        #
+        # put it all together
+        for record in folder_names:
+            id = record['id']
+            res[id] = False
+            folder = record['fnxfs_folder']
+            if not folder:
+                continue
+            disk_folder = folder.replace('/', '%2f')
+            try:
+                web_folder = quote(folder.encode('utf-8'), safe='')
+            except KeyError:
+                _logger.exception('bad name: %s( %r )', type(folder), folder)
+                raise
+            display_files = []
+            if base_path.exists(disk_folder):
+                display_files.sort(
+                        [img for img in (base_path/disk_folder).listdir() if img.ext in ('.png','.jpg')],
+                        key=self.sort,
+                        )
+            res[id] = template.string(
+                    download=base_url + '/image',
+                    path=leaf_path,
+                    folder=web_folder,
+                    display_files=display_files,
+                    )
+        return res
+
+    def show_list(self, model, cr, uid, ids, base_url, context=None):
+        res = {}
+        #
         template = Xaml(file_list).document.pages[0]
         leaf_path = Path(model._fnxfs_path)/self.path           # model path / field path
         base_path = model._fnxfs_root / leaf_path               # anchored path / model path / field path
@@ -99,16 +145,16 @@ class files(fields.function):
                 _logger.exception('bad name: %s( %r )', type(folder), folder)
                 raise
             website_select = (
-                    website.value
+                    base_url
                     + '/fnxfs/select_files?model=%s&field=%s&rec_id=%s'
                     % (model._name, self._field_name, id)
                     )
             display_files = []
             if base_path.exists(disk_folder):
-                display_files = sorted((base_path/disk_folder).listdir())
+                display_files.sort((base_path/disk_folder).listdir(), key=self.sort)
             safe_files = [quote(f, safe='') for f in display_files]
             res[id] = template.string(
-                    download=website_download,
+                    download=base_url + '/download',
                     path=leaf_path,
                     folder=web_folder,
                     display_files=display_files,
@@ -118,8 +164,20 @@ class files(fields.function):
                     )
         return res
 
-    def set(self, cr, obj, id, name, value, user=None, context=None):
-        pass
+    def get(self, cr, model, ids, name, uid=False, context=None, values=None):
+        if isinstance(ids, (int, long)):
+            ids = [ids]
+        if not ids:
+            return {}
+        ir_config_parameter = model.pool.get('ir.config_parameter')
+        website = ir_config_parameter.browse(
+                cr, uid,
+                [('key','=','web.base.url')],
+                context=context,
+                )[0]
+        base_url = website.value + '/fnxfs'
+        return self.style(model, cr, uid, ids, base_url=base_url, context=context)
+
 
 file_list = '''
 ~div
@@ -136,4 +194,15 @@ file_list = '''
         ~a href=args.select target='_blank': Add files...
     -elif args.permissions == 'unlink':
         ~a href=args.select target='_blank': Delete files...
+'''
+
+image_list = '''
+~div
+    -if args.display_images:
+        ~ul
+            -for wfile in args.web_images:
+                -path = '%s?path=%s&folder=%s&file=%s' % (args.download, args.path, args.folder, wfile)
+                ~li
+                    ~img src=path width=100% align=center
+        ~br
 '''

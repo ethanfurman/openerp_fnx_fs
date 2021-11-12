@@ -109,6 +109,29 @@ class FnxFS(Controller):
             return werkzeug.exceptions.InternalServerError()
 
     @httprequest
+    def image(self, request, path, folder, **kw):
+        target_path_file = fnx_root
+        target_path_file /= path
+        target_path_file /= folder.replace('/', '%2f')
+        target_path_file /= file.replace('/', '%2f')
+        try:
+            with (target_path_file).open('rb') as fh:
+                file_data = fh.read()
+            return request.make_response(
+                    file_data,
+                    headers=[
+                        ('Content-Disposition',  content_disposition(target_path_file.filename, request)),
+                        ('Content-Type', guess_type(file)[0] or 'octet-stream'),
+                        ('Content-Length', len(file_data)),
+                        ],
+                    )
+        except Exception:
+            _logger.exception('error accessing %r', file)
+            return werkzeug.exceptions.InternalServerError(
+                    'An error occured attempting to access %r; please let IT know.' % (str(file),)
+                    )
+
+    @httprequest
     def select_files(self, request, model, field, rec_id):
         try:
             master_session_id = request.httprequest.cookies['instance0|session_id'].replace('%22','')

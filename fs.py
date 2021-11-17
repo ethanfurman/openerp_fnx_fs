@@ -1282,13 +1282,21 @@ class fnx_fs(osv.AbstractModel):
                    },
         """
         res = {}
-        for column_name, column in sorted(self._columns.items()):
-            if isinstance(column, files):
-                res[column_name] = {
-                        'display': column.string,
-                        # 'db_name': column_name,
-                        'path':(self._fnxfs_root)/self._fnxfs_path/column.path,
-                        }
+        if self._name == 'fnx_fs.fs':
+            tables = self._fnxfs_tables
+        else:
+            tables = [self]
+        for table_name in sorted(tables):
+            info = res[table_name] = {}
+            table = self.pool.get(table_name)
+            for column_name, column in sorted(table._columns.items()):
+                if isinstance(column, files):
+                    info[column_name] = {
+                            'name': column_name,
+                            'display': column.string,
+                            # 'db_name': column_name,
+                            'path':(table._fnxfs_root)/table._fnxfs_path/column.path,
+                            }
         return res
 
 

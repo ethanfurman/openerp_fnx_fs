@@ -10,6 +10,8 @@ _logger = logging.getLogger(__name__)
 
 empty = re.compile('^<div>\s*<a href=')
 
+fields.PUBLIC_FIELD_ATTRIBUTES.append('path')
+
 class files(fields.function):
     "shows files at a certain location"
 

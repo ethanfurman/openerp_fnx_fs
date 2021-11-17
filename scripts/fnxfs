@@ -10,6 +10,8 @@ from scription import *
 from openerplib import get_connection
 
 import os
+import pwd
+
 CONFIG = Path('/%s/config/fnx.ini' % os.environ['VIRTUAL_ENV'])
 
 try:
@@ -32,10 +34,10 @@ openerp = None
 
 
 @Script(
-        host=('host where OpenERP instance is running', OPTION),
-        db=('database to use', OPTION),
-        user=('login name to use', OPTION),
-        pw=('password for login name', OPTION),
+        host=('host where OpenERP instance is running', OPTION, None),
+        db=('database to use', OPTION, None),
+        user=('login name to use', OPTION, None),
+        pw=('password for login name', OPTION, None),
         )
 def main(host=HOST, db=DB, user=USER, pw=''):
     global Type, convert, _logger
@@ -74,6 +76,7 @@ def initialize(*tables):
 def file_paths(table=None, field=None):
     "display all tables with fnxfs.files fields and their paths"
     info = openerp.get_model('fnx_fs.fs', transient=True).fnxfs_table_info()
+    print(info)
     for table_name, fields in sorted(info.items()):
         if table is None or table == table_name:
             echo(table_name, border='underline')
@@ -130,6 +133,44 @@ def leafs(state=None, table=None, field=None):
                              or (state == 'dead' and not living)
                             ):
                             echo(branch/leaf)
+
+
+@Command(
+        src=('file to copy', REQUIRED, 's', Path),
+        dst=('where to put it (and possibly new name)', REQUIRED, 'd', Path),
+        max_copies=('how many archival copies to keep', OPTION, int),
+        )
+def cp(src, dst, max_copies=0):
+    """
+    copy file into FnxFS structure, also archiving it
+
+    dst -> table.name/record_specifier/field/filename.ext
+    """
+    IS_ROOT = os.geteuid() == 0
+    try:
+        OPENERP = tuple(pwd.getpwnam('openerp')[2:4])
+    except KeyError:
+        abort("user 'openerp' does not exist")
+    if not src.exists():
+        abort('%s does not exist' % (src, ))
+    if dst.count('/') == 2:
+        table_name, record_name, field_name = dst.split('/', 2)
+        filename = src.filename
+    elif dst.count('/') == 3:
+        table_name, record_name, field_name, file_name = dst.split('/', 3)
+    else:
+        abort('invalid path: %r' % (dst, ))
+    oe_table = openerp.get_model(table_name)
+    records = oe_table.read([(oe_table._rec_name,'=',record_name)], fields=['fnxfs_folder'])
+    if not records:
+        abort('unable to find record %r' % str(record_name))
+    for record in records:
+        dst = oe_table._fnxfs_root / oe_table._fnxfs_path / record.fnxfs_folder / filename
+        print(dst, end=' ... ')
+        src.copy(dst)
+        print('ok')
+        if IS_ROOT:
+            dst.chown(*OPENERP)
 
 
 Main()

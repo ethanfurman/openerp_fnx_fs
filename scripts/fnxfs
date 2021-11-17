@@ -72,22 +72,29 @@ def initialize(*tables):
 @Command(
         table=('table to check', ),
         field=('field to check', ),
+        sort=Spec('sort by...', OPTION, choices=['field','display']),
         )
-def file_paths(table=None, field=None):
+def file_paths(table=None, field=None, sort='field'):
     "display all tables with fnxfs.files fields and their paths"
     info = openerp.get_model('fnx_fs.fs', transient=True).fnxfs_table_info()
-    print(info)
+    rows = [('table','field name','field string','field path')]
     for table_name, fields in sorted(info.items()):
         if table is None or table == table_name:
-            echo(table_name, border='underline')
+            rows.append(None)
             lines = []
-            for field_desc in fields:
-                if field is None or field == field_desc['name']:
-                    lines.append((field_desc['name'], field_desc['path']))
+            for name, column in fields.items():
+                lines.append((column['name'], column['display'], column['path']))
             if lines:
-                width = max(map(len, [l[0] for l in lines]))
-                echo('\n'.join(['   %-*s: %s' % (width, l[0], l[1]) for l in lines]))
-            echo()
+                if sort == 'field':
+                    lines.sort(key=lambda l: l[0])
+                elif sort == 'display':
+                    lines.sort(key=lambda l: l[1])
+                else:
+                    abort('unknown sort option %r' % (sort, ))
+                rows.append((table_name, lines[0][0], lines[0][1], lines[0][2]))
+                for name, display, path in lines[1:]:
+                    rows.append(('', name, display, path))
+    echo(rows, border='table', table_header=False)
 
 
 @Command(

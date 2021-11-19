@@ -76,7 +76,7 @@ class files(fields.function):
         res = {}
         #
         # get on-disk file path
-        template = Xaml(file_list).document.pages[0]
+        template = Xaml(image_list).document.pages[0]
         leaf_path = Path(model._fnxfs_path)/self.path           # model path / field path
         base_path = model._fnxfs_root / leaf_path               # anchored path / model path / field path
         folder_names = model.read(
@@ -100,7 +100,7 @@ class files(fields.function):
                 raise
             display_files = []
             if base_path.exists(disk_folder):
-                display_files.sort(
+                display_files = sorted(
                         [img for img in (base_path/disk_folder).listdir() if img.ext in ('.png','.jpg')],
                         key=self.sort,
                         )
@@ -108,7 +108,7 @@ class files(fields.function):
                     download=base_url + '/image',
                     path=leaf_path,
                     folder=web_folder,
-                    display_files=display_files,
+                    web_images=display_files,
                     )
         return res
 
@@ -153,7 +153,7 @@ class files(fields.function):
                     )
             display_files = []
             if base_path.exists(disk_folder):
-                display_files.sort((base_path/disk_folder).listdir(), key=self.sort)
+                display_files = sorted((base_path/disk_folder).listdir(), key=self.sort)
             safe_files = [quote(f, safe='') for f in display_files]
             res[id] = template.string(
                     download=base_url + '/download',
@@ -200,11 +200,9 @@ file_list = '''
 
 image_list = '''
 ~div
-    -if args.display_images:
-        ~ul
-            -for wfile in args.web_images:
-                -path = '%s?path=%s&folder=%s&file=%s' % (args.download, args.path, args.folder, wfile)
-                ~li
-                    ~img src=path width=100% align=center
+    -if args.web_images:
+        -for wfile in args.web_images:
+            -path = '%s?path=%s&folder=%s&file=%s' % (args.download, args.path, args.folder, wfile)
+            ~img src=path width='50%' align='center'
         ~br
 '''

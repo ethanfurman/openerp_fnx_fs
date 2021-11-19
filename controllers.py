@@ -109,7 +109,7 @@ class FnxFS(Controller):
             return werkzeug.exceptions.InternalServerError()
 
     @httprequest
-    def image(self, request, path, folder, **kw):
+    def image(self, request, path, folder, file, **kw):
         target_path_file = fnx_root
         target_path_file /= path
         target_path_file /= folder.replace('/', '%2f')

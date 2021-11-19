@@ -160,19 +160,27 @@ def cp(src, dst, max_copies=0):
         abort("user 'openerp' does not exist")
     if not src.exists():
         abort('%s does not exist' % (src, ))
+    dst = dst.strip('/')
     if dst.count('/') == 2:
         table_name, record_name, field_name = dst.split('/', 2)
-        filename = src.filename
+        leaf = src.filename
     elif dst.count('/') == 3:
-        table_name, record_name, field_name, file_name = dst.split('/', 3)
+        table_name, record_name, field_name, leaf = dst.split('/', 3)
     else:
         abort('invalid path: %r' % (dst, ))
     oe_table = openerp.get_model(table_name)
     records = oe_table.read([(oe_table._rec_name,'=',record_name)], fields=['fnxfs_folder'])
     if not records:
-        abort('unable to find record %r' % str(record_name))
+        abort('unable to find %s %r' % (oe_table._description, str(record_name)))
+    root = oe_table._fnxfs_root
+    trunk = oe_table._fnxfs_path
+    branch = oe_table._all_columns[field_name].path
+    path = Path(root) / trunk / branch
     for record in records:
-        dst = oe_table._fnxfs_root / oe_table._fnxfs_path / record.fnxfs_folder / filename
+        stem = record.fnxfs_folder
+        dst =  path / stem / leaf
+        if not dst.parent.exists():
+            dst.parent.mkdir()
         print(dst, end=' ... ')
         src.copy(dst)
         print('ok')

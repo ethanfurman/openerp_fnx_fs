@@ -103,6 +103,7 @@ class files(fields.function):
                 display_files = sorted(
                         [img for img in (base_path/disk_folder).listdir() if img.ext in ('.png','.jpg')],
                         key=self.sort,
+                        reverse=True,
                         )
             res[id] = template.string(
                     download=base_url + '/image',
@@ -203,6 +204,6 @@ image_list = '''
     -if args.web_images:
         -for wfile in args.web_images:
             -path = '%s?path=%s&folder=%s&file=%s' % (args.download, args.path, args.folder, wfile)
-            ~img src=path width='50%' align='center'
+            ~img src=path width='100%' align='center'
         ~br
 '''

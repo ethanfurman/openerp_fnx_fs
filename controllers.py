@@ -6,6 +6,7 @@ from openerp import ROOT_DIR
 from openerp.addons.web.http import Controller, httprequest
 from openerp.addons.web.controllers.main import content_disposition
 from antipathy import Path
+from datetime import datetime
 from mimetypes import guess_type
 from operator import div
 from xaml import Xaml
@@ -61,6 +62,8 @@ class FnxFS(Controller):
         target_path_file /= path
         target_path_file /= folder.replace('/', '%2f')
         target_path_file /= file.replace('/', '%2f')
+        if target_path_file.isdir():
+            target_path_file /= 'current'
         try:
             with (target_path_file).open('rb') as fh:
                 file_data = fh.read()
@@ -73,7 +76,7 @@ class FnxFS(Controller):
                         ],
                     )
         except Exception:
-            _logger.exception('error accessing %r', file)
+            _logger.exception('error accessing %r as %r', file, target_path_file)
             return werkzeug.exceptions.InternalServerError(
                     'An error occured attempting to access %r; please let IT know.' % (str(file),)
                     )
@@ -96,6 +99,8 @@ class FnxFS(Controller):
         target_path_file /= file.replace('/', '%2f')
         try:
             _logger.info("user: %r; action: delete; file: '%s'", master_session._login, target_path_file)
+            if target_path_file.isdir():
+                target_path_file /= 'current'
             target_path_file.unlink()
             return request.make_response(
                     '<i>file deleted</i>',
@@ -105,7 +110,7 @@ class FnxFS(Controller):
                         ],
                     )
         except Exception:
-            _logger.exception('error deleting %r', file)
+            _logger.exception('error deleting %r as %r', file, target_path_file)
             return werkzeug.exceptions.InternalServerError()
 
     @httprequest
@@ -114,6 +119,8 @@ class FnxFS(Controller):
         target_path_file /= path
         target_path_file /= folder.replace('/', '%2f')
         target_path_file /= file.replace('/', '%2f')
+        if target_path_file.isdir():
+            target_path_file /= 'current'
         try:
             with (target_path_file).open('rb') as fh:
                 file_data = fh.read()
@@ -126,7 +133,7 @@ class FnxFS(Controller):
                         ],
                     )
         except Exception:
-            _logger.exception('error accessing %r', file)
+            _logger.exception('error accessing %r as %r', file, target_path_file)
             return werkzeug.exceptions.InternalServerError(
                     'An error occured attempting to access %r; please let IT know.' % (str(file),)
                     )
@@ -136,8 +143,6 @@ class FnxFS(Controller):
         try:
             master_session_id = request.httprequest.cookies['instance0|session_id'].replace('%22','')
             master_session = request.httpsession[master_session_id]
-                # '\n_login: %r\n_uid: %r\n_db: %r\n_password: %r\ncontext: %r\n',
-                # ms._login, ms._uid, ms._db, ms._password, ms.context,
         except Exception:
             _logger.error('cookies: %r', request.httprequest.cookies)
             _logger.exception('unauthorized attempt to access %r', file)
@@ -156,7 +161,6 @@ class FnxFS(Controller):
                 files=files,
                 folder=leaf,
                 rec_id=rec_id,
-                # path=target_path,
                 create='write' in perms,
                 unlink='unlink' in perms,
                 )
@@ -187,6 +191,13 @@ class FnxFS(Controller):
         if not target_path.exists():
             target_path.mkdir()
         target_path_file = target_path / file.filename.replace('/', '%2f')
+        if not target_path_file.exists():
+            target_path_file.mkdir()
+        current = target_path_file / 'current'
+        now = target_path_file / datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
         _logger.info("user: %r; action: upload; file: '%s'", master_session._login, target_path_file)
-        file.save(target_path_file)
+        file.save(now)
+        if current.exists():
+            current.unlink()
+        now.link(current)
         return "%s successfully uploaded" % file.filename

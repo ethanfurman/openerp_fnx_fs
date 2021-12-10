@@ -85,6 +85,12 @@ class files(fields.function):
                 context=context,
                 )
         #
+        # get user permissions for the table
+        perms = None
+        ir_model_access = model.pool.get('ir.model.access')
+        if ir_model_access.check( cr, uid, model._name, 'unlink', False, context):
+            perms = 'unlink'
+        #
         # put it all together
         for record in folder_names:
             id = record['id']
@@ -98,18 +104,22 @@ class files(fields.function):
             except KeyError:
                 _logger.exception('bad name: %s( %r )', type(folder), folder)
                 raise
-            display_files = []
-            if base_path.exists(disk_folder):
-                display_files = sorted(
-                        [img for img in (base_path/disk_folder).listdir() if img.ext in ('.png','.jpg')],
-                        key=self.sort,
-                        reverse=True,
-                        )
+            #
+            website_delete = (
+                    base_url
+                    + '/delete?model=%s&field=%s&rec_id=%s'
+                    % (model._name, self._field_name, id)
+                    )
+            #
+            display_files = self.get_files(base_path/disk_folder, keep=lambda f: f.ext.endswith(('.png','.jpg')))
+            display_files.sort(key=self.sort)
             res[id] = template.string(
                     download=base_url + '/image',
                     path=leaf_path,
                     folder=web_folder,
                     web_images=display_files,
+                    delete=website_delete,
+                    permissions=perms,
                     )
         return res
 
@@ -149,12 +159,11 @@ class files(fields.function):
                 raise
             website_select = (
                     base_url
-                    + '/fnxfs/select_files?model=%s&field=%s&rec_id=%s'
+                    + '/select_files?model=%s&field=%s&rec_id=%s'
                     % (model._name, self._field_name, id)
                     )
-            display_files = []
-            if base_path.exists(disk_folder):
-                display_files = sorted((base_path/disk_folder).listdir(), key=self.sort)
+            display_files = self.get_files(base_path/disk_folder)
+            display_files.sort(key=self.sort)
             safe_files = [quote(f, safe='') for f in display_files]
             res[id] = template.string(
                     download=base_url + '/download',
@@ -181,6 +190,22 @@ class files(fields.function):
         base_url = website.value + '/fnxfs'
         return self.style(model, cr, uid, ids, base_url=base_url, context=context)
 
+    def get_files(self, folder, keep=None):
+        if not folder.exists():
+            return []
+        names = filter(keep, folder.listdir())
+        files = []
+        for name in names:
+            target = folder/name
+            current = target/'current'
+            if target.isfile():
+                files.append(name)
+            elif not target.isdir():
+                _logger.error('unable to handle disk entry %r', name)
+            elif current.exists():
+                files.append(name)
+        return files
+
 
 file_list = '''
 ~div
@@ -204,6 +229,12 @@ image_list = '''
     -if args.web_images:
         -for wfile in args.web_images:
             -path = '%s?path=%s&folder=%s&file=%s' % (args.download, args.path, args.folder, wfile)
-            ~img src=path width='100%' align='center'
-        ~br
+            ~div style='display:inline-block;align:left;'
+                ~img src=path width='90%'
+            -if args.permissions == 'unlink':
+                ~div style='display:inline-block; align:right;'
+                    -delete = '%s&file=%s' % (args.delete, wfile)
+                    ~a href=delete: delete image
+            ~br
+            ~hr
 '''

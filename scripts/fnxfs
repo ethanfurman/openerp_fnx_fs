@@ -6,8 +6,10 @@ Various utilities for managing fnx_fs attached files.
 
 from __future__ import print_function
 from antipathy import Path
+from datetime import datetime, timedelta
 from scription import *
 from openerplib import get_connection
+from tempfile import mkstemp
 
 import os
 import pwd
@@ -149,11 +151,10 @@ def leafs(state=None, table=None, field=None):
 @Command(
         src=('file to copy', REQUIRED, 's', Path),
         dst=('where to put it (and possibly new name)', REQUIRED, 'd', Path),
-        max_copies=('how many archival copies to keep', OPTION, int),
         )
-def cp(src, dst, max_copies=0):
+def cp(src, dst):
     """
-    copy file into FnxFS structure, also archiving it
+    copy file into FnxFS structure
 
     dst -> table.name/record_specifier/field/filename.ext
     """
@@ -163,7 +164,7 @@ def cp(src, dst, max_copies=0):
     except KeyError:
         abort("user 'openerp' does not exist")
     if not src.exists():
-        abort('%s does not exist' % (src, ))
+        abort('does not exist: %r' % (src, ))
     dst = dst.strip('/')
     if dst.count('/') == 2:
         table_name, record_name, field_name = dst.split('/', 2)
@@ -173,23 +174,90 @@ def cp(src, dst, max_copies=0):
     else:
         abort('invalid path: %r' % (dst, ))
     oe_table = openerp.get_model(table_name)
-    records = oe_table.read([(oe_table._rec_name,'=',record_name)], fields=['fnxfs_folder'])
+    if '=' in record_name:
+        try:
+            table_field, field_value = record_name.split('=')
+        except ValueError:
+            abort('invalid record name %r' % record_name)
+    else:
+        table_field = oe_table._rec_name
+        field_value = record_name
+    records = oe_table.read([(table_field,'=',field_value)], fields=['fnxfs_folder',table_field])
     if not records:
-        abort('unable to find %s %r' % (oe_table._description, str(record_name)))
+        abort('unable to find %s with %s=%r' % (oe_table._description, table_field, field_value))
     root = oe_table._fnxfs_root
     trunk = oe_table._fnxfs_path
-    branch = oe_table._all_columns[field_name].path
+    try:
+        branch = oe_table._all_columns[field_name].path
+    except KeyError:
+        abort('invalid field %r' % (field_name, ))
     path = Path(root) / trunk / branch
     for record in records:
+        print('processing %r' % record[table_field])
         stem = record.fnxfs_folder
-        dst =  path / stem / leaf
+        dst = path / stem / leaf
+        print('  initial destination %r' % dst)
         if not dst.parent.exists():
             dst.parent.mkdir()
-        print(dst, end=' ... ')
-        src.copy(dst)
-        print('ok')
+        if not dst.exists():
+            print('  using name as-is', end=' ... ')
+            # this is the first copy of this name, keep as-is
+            src.copy(dst)
+            if dst.exists():
+                print('ok\ndone')
+            else:
+                print('FAILED')
+                abort('  file not copied')
+            continue
+        if not dst.isdir():
+            # simple file exists, need to convert to a directory structure
+            print('  file already exists, converting to directory archive')
+            nfd, new_name = mkstemp(suffix='.tmp', prefix=dst.filename, dir=dst.dirname)
+            os.close(nfd)
+            new_name = Path(new_name)
+            print('      renaming existing file to %r' % new_name.filename, end=' ... ')
+            dst.move(new_name)
+            if new_name.exists():
+                print('ok')
+            else:
+                print('FAILED')
+                abort('failed to move existing file %r to %r' % (dst, new_name))
+            print('      creating directory archive', end=' ... ')
+            dst.mkdir()
+            if dst.exists():
+                print('ok')
+            else:
+                print('FAILED')
+                abort('unable to create directory %r' % dst)
+            timestamp = datetime(1970, 1, 1) + timedelta(seconds=new_name.stat().st_mtime)
+            target = dst / timestamp.strftime('%Y-%m-%d_%H:%M:%S')
+            print('      moving temp file into new structure as %r' % target.filename, end=' ... ')
+            new_name.move(target)
+            if target.exists():
+                print('ok')
+            else:
+                print('FAILED')
+                abort('unable to move %r into %r' % (new_name.filename, target))
+        # directory structure exists, calculate name of new entry
+        timestamp = datetime(1970, 1, 1) + timedelta(seconds=src.stat().st_mtime)
+        target = dst / timestamp.strftime('%Y-%m-%d_%H:%M:%S')
+        print('  copying %r into %r as %r' % (src, dst, target.filename), end=' ... ')
+        src.copy(target)
+        if target.exists():
+            print('ok')
+        else:
+            print('FAILED')
+            abort('unable to copy %s to %r as %r' % (src, dst, target.filename))
+        if dst.lexists('current'):
+            dst.unlink('current')
+        if dst.lexists('current'):
+            abort('file copied, unable to remove %r' % (dst/'current'))
+        target.filename.symlink(dst/'current')
+        if not dst.exists('current'):
+            abort('file copied, unable to add %r' % (dst/'current'))
         if IS_ROOT:
             dst.chown(*OPENERP)
+        print('  done')
 
 
 Main()

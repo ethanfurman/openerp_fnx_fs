@@ -33,7 +33,11 @@ class files(fields.function):
         else:
             raise ERPError('Configuration Error', 'valid choices for style are "list" and "images", not %r' % (style, ))
         if sort == 'alpha':
-            self.sort = lambda name: name
+            self.sort = lambda f: f.filename
+        elif sort == 'newest':
+            self.sort = lambda f: f.stat().st_mtime
+        elif sort == 'oldest':
+            self.sort = lambda f: -f.stat().st_mtime
         elif sort is None:
             raise ERPError(
                     "sort must be 'alpha' or a function that takes a fully-qualified file name as an argument (not %r)"
@@ -111,8 +115,7 @@ class files(fields.function):
                     % (model._name, self._field_name, id)
                     )
             #
-            display_files = self.get_files(base_path/disk_folder, keep=lambda f: f.ext.endswith(('.png','.jpg')))
-            display_files.sort(key=self.sort)
+            display_files = self.get_and_sort_files(base_path/disk_folder, keep=lambda f: f.ext.endswith(('.png','.jpg')))
             res[id] = template.string(
                     download=base_url + '/image',
                     path=leaf_path,
@@ -162,7 +165,7 @@ class files(fields.function):
                     + '/select_files?model=%s&field=%s&rec_id=%s'
                     % (model._name, self._field_name, id)
                     )
-            display_files = self.get_files(base_path/disk_folder)
+            display_files = self.get_and_sort_files(base_path/disk_folder)
             display_files.sort(key=self.sort)
             safe_files = [quote(f, safe='') for f in display_files]
             res[id] = template.string(
@@ -190,21 +193,20 @@ class files(fields.function):
         base_url = website.value + '/fnxfs'
         return self.style(model, cr, uid, ids, base_url=base_url, context=context)
 
-    def get_files(self, folder, keep=None):
+    def get_and_sort_files(self, folder, keep=None):
         if not folder.exists():
             return []
-        names = filter(keep, folder.listdir())
-        files = []
-        for name in names:
-            target = folder/name
+        files = filter(keep, folder.glob())
+        sorted_files = []
+        for target in files:
             current = target/'current'
             if target.isfile():
-                files.append(name)
+                sorted_files.append(target.filename)
             elif not target.isdir():
-                _logger.error('unable to handle disk entry %r', name)
+                _logger.error('unable to handle disk entry %r', target)
             elif current.exists():
-                files.append(name)
-        return files
+                sorted_files.append(target.filename)
+        return sorted_files
 
 
 file_list = '''

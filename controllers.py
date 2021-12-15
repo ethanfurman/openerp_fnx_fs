@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 
 import logging
+import os
 import werkzeug
 from openerp import ROOT_DIR
 from openerp.addons.web.http import Controller, httprequest
 from openerp.addons.web.controllers.main import content_disposition
 from antipathy import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from mimetypes import guess_type
 from operator import div
+from tempfile import mkstemp
 from xaml import Xaml
 
 _logger = logging.getLogger(__name__)
@@ -99,16 +101,19 @@ class FnxFS(Controller):
         target_path_file /= file.replace('/', '%2f')
         try:
             _logger.info("user: %r; action: delete; file: '%s'", master_session._login, target_path_file)
-            if target_path_file.isdir():
+            if not self.use_archive(target_path_file):
+                # file doesn't exist
+                return request.not_found()
+            else:
                 target_path_file /= 'current'
-            target_path_file.unlink()
-            return request.make_response(
-                    '<i>file deleted</i>',
-                    headers=[
-                        ('Content-Type', 'text/html'),
-                        ('Content-Length', 19),
-                        ],
-                    )
+                target_path_file.unlink()
+                return request.make_response(
+                        '<i>file deleted</i>',
+                        headers=[
+                            ('Content-Type', 'text/html'),
+                            ('Content-Length', 19),
+                            ],
+                        )
         except Exception:
             _logger.exception('error deleting %r as %r', file, target_path_file)
             return werkzeug.exceptions.InternalServerError()
@@ -191,13 +196,36 @@ class FnxFS(Controller):
         if not target_path.exists():
             target_path.mkdir()
         target_path_file = target_path / file.filename.replace('/', '%2f')
-        if not target_path_file.exists():
-            target_path_file.mkdir()
-        current = target_path_file / 'current'
-        now = target_path_file / datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
-        _logger.info("user: %r; action: upload; file: '%s'", master_session._login, target_path_file)
-        file.save(now)
-        if current.exists():
-            current.unlink()
-        now.link(current)
-        return "%s successfully uploaded" % file.filename
+        if not self.use_archive(target_path_file):
+            # brand-new file, use name as-is
+            file.save(target_path_file)
+            return "%s successfully uploaded" % file.filename
+        else:
+            current = target_path_file / 'current'
+            now = target_path_file / datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
+            _logger.info("user: %r; action: upload; file: '%s'", master_session._login, target_path_file)
+            file.save(now)
+            if current.exists():
+                current.unlink()
+            now.filename.symlink(current)
+            return "%s successfully uploaded" % file.filename
+
+    def use_archive(self, path):
+        if not path.exists():
+            # clean slate, no archive needed
+            return False
+        elif not path.isdir():
+            # simple file exists, need to convert to a directory structure
+            nfd, new_name = mkstemp(suffix='.tmp', prefix=path.filename, dir=path.dirname)
+            os.close(nfd)
+            new_name = Path(new_name)
+            path.move(new_name)
+            path.mkdir()
+            timestamp = datetime(1970, 1, 1) + timedelta(seconds=new_name.stat().st_mtime)
+            target = path / timestamp.strftime('%Y-%m-%d_%H:%M:%S')
+            new_name.move(target)
+            current = path / 'current'
+            target.filename.symlink(current)
+        # at this point, an archive structure exists
+        return True
+

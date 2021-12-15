@@ -8,7 +8,8 @@ from xaml import Xaml
 
 _logger = logging.getLogger(__name__)
 
-empty = re.compile('^<div>\s*<a href=')
+empty_list = re.compile('^<div>\s*<a href=')
+empty_image = re.compile('^<div>\s*</div>')
 
 fields.PUBLIC_FIELD_ATTRIBUTES.append('path')
 
@@ -58,7 +59,7 @@ class files(fields.function):
             data = rec[field]
             if criterion is False:
                 # is set / is not set
-                if empty.match(data):
+                if empty_list.match(data) or empty_image.match(data):
                     data = False
             else:
                 # = and != don't make sense, convert to contains
@@ -184,13 +185,7 @@ class files(fields.function):
             ids = [ids]
         if not ids:
             return {}
-        ir_config_parameter = model.pool.get('ir.config_parameter')
-        website = ir_config_parameter.browse(
-                cr, uid,
-                [('key','=','web.base.url')],
-                context=context,
-                )[0]
-        base_url = website.value + '/fnxfs'
+        base_url = '/fnxfs'
         return self.style(model, cr, uid, ids, base_url=base_url, context=context)
 
     def get_and_sort_files(self, folder, keep=None):

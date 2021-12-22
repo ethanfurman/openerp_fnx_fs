@@ -104,6 +104,57 @@ def file_paths(table=None, field=None, sort='field'):
 
 
 @Command(
+        path=Spec('table.name/record_specifier/field', REQUIRED, type=Path),
+        )
+def list_files(path):
+    """
+    show files at path, including how many copies of each
+    """
+    dst = path.strip('/')
+    if dst.count('/') == 2:
+        table_name, record_name, field_name = dst.split('/', 2)
+    else:
+        abort('invalid path: %r' % (dst, ))
+    oe_table = openerp.get_model(table_name)
+    if '=' in record_name:
+        try:
+            table_field, field_value = record_name.split('=')
+        except ValueError:
+            abort('invalid record name %r' % record_name)
+    else:
+        table_field = oe_table._rec_name
+        field_value = record_name
+    records = oe_table.read([(table_field,'=',field_value)], fields=['fnxfs_folder',table_field])
+    if not records:
+        abort('unable to find %s with %s=%r' % (oe_table._description, table_field, field_value))
+    root = oe_table._fnxfs_root
+    trunk = oe_table._fnxfs_path
+    try:
+        branch = oe_table._all_columns[field_name].path
+    except KeyError:
+        abort('invalid field %r' % (field_name, ))
+    path = Path(root) / trunk / branch
+    for record in records:
+        stem = record.fnxfs_folder
+        dst = path / stem
+        if not dst.parent.exists():
+            dst.parent.mkdir()
+        files = dst.listdir()
+        if script_verbosity:
+            echo('[%s] (%d)' % (dst.filename, len(files)))
+        for file in files:
+            echo('%s' % file, end='')
+            if script_verbosity:
+                if file.isdir():
+                    revisions = dst.listdir(file)
+                    echo(' (%d)' % (len(revisions), ))
+                else:
+                    echo(' (1)')
+            else:
+                echo()
+
+
+@Command(
         table=('table to check', ),
         field=('field to check', ),
         )

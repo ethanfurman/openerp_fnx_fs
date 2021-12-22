@@ -158,11 +158,14 @@ def cp(src, dst):
 
     dst -> table.name/record_specifier/field/filename.ext
     """
+    print('\n%s',datetime.now())
     IS_ROOT = os.geteuid() == 0
+    print('running as root? ', bool(IS_ROOT))
     try:
         OPENERP = tuple(pwd.getpwnam('openerp')[2:4])
     except KeyError:
         abort("user 'openerp' does not exist")
+    print('openerp ids:', OPENERP)
     if not src.exists():
         abort('does not exist: %r' % (src, ))
     dst = dst.strip('/')
@@ -255,8 +258,14 @@ def cp(src, dst):
         target.filename.symlink(dst/'current')
         if not dst.exists('current'):
             abort('file copied, unable to add %r' % (dst/'current'))
-        if IS_ROOT:
+        if not IS_ROOT:
+            print('not root')
+        else:
+            print('changing ownership to', OPENERP)
             dst.chown(*OPENERP)
+            s = dst.stat()
+            owner = s.st_uid, s.st_gid
+            print('         ownership is', owner)
         print('  done')
 
 

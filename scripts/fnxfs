@@ -81,15 +81,17 @@ def initialize(*tables):
         sort=Spec('sort by...', OPTION, choices=['field','display']),
         )
 def file_paths(table=None, field=None, sort='field'):
-    "display all tables with fnxfs.files fields and their paths"
+    """
+    display tables with fnxfs.files fields and their paths
+    """
     info = openerp.get_model('fnx_fs.fs', transient=True).fnxfs_table_info()
     rows = [('table','field name','field string','field path')]
     for table_name, fields in sorted(info.items()):
         if table is None or table == table_name:
             rows.append(None)
             lines = []
-            for name, column in fields.items():
-                lines.append((column['name'], column['display'], column['path']))
+            for f in fields:
+                lines.append([None, f.db_name, f.name, f.path])
             if lines:
                 if sort == 'field':
                     lines.sort(key=lambda l: l[0])
@@ -97,9 +99,8 @@ def file_paths(table=None, field=None, sort='field'):
                     lines.sort(key=lambda l: l[1])
                 else:
                     abort('unknown sort option %r' % (sort, ))
-                rows.append((table_name, lines[0][0], lines[0][1], lines[0][2]))
-                for name, display, path in lines[1:]:
-                    rows.append(('', name, display, path))
+                lines[0][0] = table_name
+                rows.extend(lines)
     echo(rows, border='table', table_header=False)
 
 

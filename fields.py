@@ -29,6 +29,8 @@ class files(fields.function):
                         )
         if style == 'list':
             func = self.show_list
+        elif style == 'static_list':
+            func = self.show_static_list
         elif style == 'images':
             func = self.show_images
         else:
@@ -180,6 +182,48 @@ class files(fields.function):
                     )
         return res
 
+    def show_static_list(self, model, cr, uid, ids, base_url, context=None):
+        res = {}
+        #
+        template = Xaml(static_file_list).document.pages[0]
+        leaf_path = Path(model._fnxfs_path)/self.path           # model path / field path
+        base_path = model._fnxfs_root / leaf_path               # anchored path / model path / field path
+        folder_names = model.read(
+                cr, uid, ids,
+                fields=['fnxfs_folder'],
+                context=context,
+                )
+        #
+        for record in folder_names:
+            id = record['id']
+            res[id] = False
+            folder = record['fnxfs_folder']
+            if not folder:
+                continue
+            disk_folder = folder.replace('/', '%2f')
+            try:
+                web_folder = quote(folder.encode('utf-8'), safe='')
+            except KeyError:
+                _logger.exception('bad name: %s( %r )', type(folder), folder)
+                raise
+            website_select = (
+                    base_url
+                    + '/select_files?model=%s&field=%s&rec_id=%s'
+                    % (model._name, self._field_name, id)
+                    )
+            display_files = self.get_and_sort_files(base_path/disk_folder)
+            display_files.sort(key=self.sort)
+            safe_files = [quote(f, safe='') for f in display_files]
+            res[id] = template.string(
+                    download=base_url + '/download',
+                    path=leaf_path,
+                    folder=web_folder,
+                    display_files=display_files,
+                    web_files=safe_files,
+                    select=website_select,
+                    )
+        return res
+
     def get(self, cr, model, ids, name, uid=False, context=None, values=None):
         if isinstance(ids, (int, long)):
             ids = [ids]
@@ -219,6 +263,16 @@ file_list = '''
         ~a href=args.select target='_blank': Add files...
     -elif args.permissions == 'unlink':
         ~a href=args.select target='_blank': Delete files...
+'''
+
+static_file_list = '''
+~div
+    -if args.display_files:
+        ~ul
+            -for wfile, dfile in zip(args.web_files, args.display_files):
+                -path = '%s?path=%s&folder=%s&file=%s' % (args.download, args.path, args.folder, wfile)
+                ~li
+                    ~a href=path target='_blank': =dfile
 '''
 
 image_list = '''

@@ -212,7 +212,6 @@ class files(fields.function):
                     % (model._name, self._field_name, id)
                     )
             display_files = self.get_and_sort_files(base_path/disk_folder)
-            display_files.sort(key=self.sort)
             safe_files = [quote(f, safe='') for f in display_files]
             res[id] = template.string(
                     download=base_url + '/download',
@@ -235,7 +234,8 @@ class files(fields.function):
     def get_and_sort_files(self, folder, keep=None):
         if not folder.exists():
             return []
-        files = filter(keep, folder.glob())
+        files = filter(keep, folder.glob('*'))
+        files.sort(key=self.sort)
         sorted_files = []
         for target in files:
             current = target/'current'

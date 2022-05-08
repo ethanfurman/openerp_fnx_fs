@@ -328,9 +328,12 @@ class fnx_fs(osv.AbstractModel):
         """
            return {
                    'db_name': {
-                        'display': field_string, 'path': root/trunk/branch/stem/leaf, 'name': field.name,
-                        },
-                   'db_name': {...},
+                        'display': field_string,
+                        'path': root/trunk/branch/stem/leaf,
+                        'name': field.name,
+                        '_rec_name': db_name._rec_name,
+                            },
+                       'db_name': {...},
                    },
         """
         res = {}
@@ -341,12 +344,12 @@ class fnx_fs(osv.AbstractModel):
         for table_name in sorted(tables):
             info = res[table_name] = {}
             table = self.pool.get(table_name)
+            info['_rec_name'] = table._rec_name
             for column_name, column in sorted(table._columns.items()):
                 if isinstance(column, files):
                     info[column_name] = {
                             'name': column_name,
                             'display': column.string,
-                            # 'db_name': column_name,
                             'path':(table._fnxfs_root)/table._fnxfs_path/column.path,
                             }
         return res

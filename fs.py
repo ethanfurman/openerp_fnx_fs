@@ -103,6 +103,7 @@ class fnx_fs(osv.AbstractModel):
         "calculate and save leaf folder name; possibly rename existing folder"
         if isinstance(ids, (int, long)):
             ids = [ids]
+        context = context or {}
         field_names = []
         columns = []
         for name, column in self._columns.items():
@@ -128,7 +129,7 @@ class fnx_fs(osv.AbstractModel):
                     # modifying existing record and changing folder-name elements
                     src = base_path/(actual.replace('/','%2f'))
                     dst = base_path/(should_be.replace('/','%2f'))
-                    if dst.exists():
+                    if dst.exists() and not context.get('fis_maintenance'):
                         raise ERPError('Error', 'New path "%s" already exists' % dst)
                     if src.exists():
                         try:

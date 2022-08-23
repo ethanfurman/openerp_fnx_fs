@@ -119,11 +119,12 @@ class files(fields.function):
                     )
             #
             display_files = self.get_and_sort_files(base_path/disk_folder, keep=lambda f: f.ext.endswith(('.png','.jpg')))
+            safe_files = [quote(f, safe='') for f in display_files]
             res[id] = template.string(
                     download=base_url + '/image',
                     path=leaf_path,
                     folder=web_folder,
-                    web_images=display_files,
+                    web_images=safe_files,
                     delete=website_delete,
                     permissions=perms,
                     )

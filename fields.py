@@ -61,7 +61,7 @@ class files(fields.function):
             data = rec[field]
             if criterion is False:
                 # is set / is not set
-                if empty_list.match(data) or empty_image.match(data):
+                if not data or empty_list.match(data) or empty_image.match(data):
                     data = False
             else:
                 # = and != don't make sense, convert to contains

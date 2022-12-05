@@ -1,1 +1,1 @@
-scripts/fnxfs
+scripts/fnxfs /usr/local/bin --suid

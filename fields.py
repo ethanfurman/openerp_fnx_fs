@@ -35,12 +35,18 @@ class files(fields.function):
             func = self.show_images
         else:
             raise ERPError('Configuration Error', 'valid choices for style are "list" and "images", not %r' % (style, ))
-        if sort == 'alpha':
+        if sort in ('alpha', 'alpha asc'):
             self.sort = lambda f: f.filename
-        elif sort == 'newest':
+            self.reverse = False
+        elif sort in ('alpha desc', ):
+            self.sort = lambda f: f.filename
+            self.reverse = True
+        elif sort in ('time', 'time desc', 'newest'):
+            self.reverse = False
             self.sort = lambda f: f.stat().st_mtime
-        elif sort == 'oldest':
+        elif sort in ('time asc', 'oldest'):
             self.sort = lambda f: -f.stat().st_mtime
+            self.revrse = True
         elif sort is None:
             raise ERPError(
                     "sort must be 'alpha' or a function that takes a fully-qualified file name as an argument (not %r)"
@@ -170,7 +176,6 @@ class files(fields.function):
                     % (model._name, self._field_name, id)
                     )
             display_files = self.get_and_sort_files(base_path/disk_folder)
-            display_files.sort(key=self.sort)
             safe_files = [quote(f, safe='') for f in display_files]
             res[id] = template.string(
                     download=base_url + '/download',
@@ -236,7 +241,7 @@ class files(fields.function):
         if not folder.exists():
             return []
         files = filter(keep, folder.glob('*'))
-        files.sort(key=self.sort)
+        files.sort(key=self.sort, reverse=self.reverse)
         sorted_files = []
         for target in files:
             current = target/'current'

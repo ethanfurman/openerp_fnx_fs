@@ -3,4 +3,5 @@
 *.sw?
 .*sw?
 client/suid-python
+*.old
 static/lib/file_upload.html

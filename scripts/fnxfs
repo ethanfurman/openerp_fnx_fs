@@ -99,7 +99,7 @@ def file_paths(table=None, field=None, sort='field'):
                 elif sort == 'display':
                     lines.sort(key=lambda l: l[1])
                 else:
-                    abort('unknown sort option %r' % (sort, ))
+                    abort('unknown sort option %r' % (sort, ), Exit.DataError)
                 lines[0][0] = table_name
                 rows.extend(lines)
     echo(rows, border='table', table_header=False)
@@ -116,25 +116,25 @@ def list_files(path):
     if dst.count('/') == 2:
         table_name, record_name, field_name = dst.split('/', 2)
     else:
-        abort('invalid path: %r' % (dst, ))
+        abort('invalid path: %r' % (dst, ), Exit.InvalidPath)
     oe_table = openerp.get_model(table_name)
     if '=' in record_name:
         try:
             table_field, field_value = record_name.split('=')
         except ValueError:
-            abort('invalid record name %r' % record_name)
+            abort('invalid record name %r' % record_name, Exit.DataError)
     else:
         table_field = oe_table._rec_name
         field_value = record_name
     records = oe_table.read([(table_field,'=',field_value)], fields=['fnxfs_folder',table_field])
     if not records:
-        abort('unable to find %s with %s=%r' % (oe_table._description, table_field, field_value))
+        abort('unable to find %s with %s=%r' % (oe_table._description, table_field, field_value), Exit.DataError)
     root = oe_table._fnxfs_root
     trunk = oe_table._fnxfs_path
     try:
         branch = oe_table._all_columns[field_name].path
     except KeyError:
-        abort('invalid field %r' % (field_name, ))
+        abort('invalid field %r' % (field_name, ), Exit.DataError)
     path = Path(root) / trunk / branch
     for record in records:
         stem = record.fnxfs_folder
@@ -207,8 +207,9 @@ def leafs(state=None, table=None, field=None):
 @Command(
         src=('file to copy', REQUIRED, 's', Path),
         dst=('where to put it (and possibly new name)', REQUIRED, 'd', Path),
+        max_copies=('how many archived copies to keep', OPTION, 'max', int),
         )
-def cp(src, dst):
+def cp(src, dst, max_copies):
     """
     copy file into FnxFS structure
 
@@ -221,10 +222,10 @@ def cp(src, dst):
     try:
         OPENERP = tuple(pwd.getpwnam('openerp')[2:4])
     except KeyError:
-        abort("user 'openerp' does not exist")
+        abort("user 'openerp' does not exist", Exit.NoUser)
     print('openerp ids:', OPENERP)
     if not src.exists():
-        abort('does not exist: %r' % (src, ))
+        abort('does not exist: %r' % (src, ), Exit.MissingFile)
     for fqfn in get_paths(dst):
         print('  initial destination %r' % fqfn)
         if not fqfn.parent.exists():
@@ -238,7 +239,7 @@ def cp(src, dst):
                 print('ok\ndone')
             else:
                 print('FAILED')
-                abort('  file not copied')
+                abort('  file not copied', Exit.IoError)
             chown(fqfn)
             continue
         if not fqfn.isdir():
@@ -256,16 +257,29 @@ def cp(src, dst):
                 print('ok')
             else:
                 print('FAILED')
-                abort('unable to copy %s to %r as %r' % (src, fqfn, target.filename))
+                abort('unable to copy %s to %r as %r' % (src, fqfn, target.filename), Exit.IoError)
             chown(target)
             if fqfn.lexists('current'):
                 fqfn.unlink('current')
             if fqfn.lexists('current'):
-                abort('file copied, unable to remove %r' % (fqfn/'current'))
+                abort('file copied, unable to remove %r' % (fqfn/'current'), Exit.IoError)
             target.filename.symlink(fqfn/'current')
             if not fqfn.exists('current'):
-                abort('file copied, unable to add %r' % (fqfn/'current'))
-        chown(fqfn)
+                abort('file copied, unable to add %r' % (fqfn/'current'), Exit.IoError)
+            chown(fqfn)
+        if max_copies:
+            # remove excess files
+            candidates = [c for c in fqfn.glob('*') if not c.endswith('/current')]
+            if len(candidates) > max_copies:
+                _logger.info('removing excess copies of %s', fqfn)
+                candidates.sort()
+                candidates = candidates[:-max_copies]
+                deleted = 0
+                for c in candidates:
+                    try:
+                        c.unlink()
+                    except OSError:
+                        error('unable to remove %s' % c)
 
 
 @Command(
@@ -291,7 +305,7 @@ def rm(filename):
     """
     for target in get_paths(filename):
         if not target.exists():
-            abort('no such file')
+            abort('no such file', Exit.MissingFile)
         if not target.isdir():
             file_to_folder(target)
             # CURRENT hasn't been linked, so we're done
@@ -300,7 +314,7 @@ def rm(filename):
             if target.exists('current'):
                 target.unlink('current')
             if target.exists('current'):
-                abort('unable to remove "%s"' % (target/current, ))
+                abort('unable to remove "%s"' % (target/current, ), Exit.IoError)
 
 
 #helpers
@@ -326,14 +340,14 @@ def file_to_folder(fqfn):
         print('ok')
     else:
         print('FAILED')
-        abort('failed to move existing file %r to %r' % (fqfn, new_name))
+        abort('failed to move existing file %r to %r' % (fqfn, new_name), Exit.IoError)
     print('      creating directory archive', end=' ... ')
     fqfn.mkdir()
     if fqfn.exists():
         print('ok')
     else:
         print('FAILED')
-        abort('unable to create directory %r' % fqfn)
+        abort('unable to create directory %r' % fqfn, Exit.IoError)
     timestamp = datetime(1970, 1, 1) + timedelta(seconds=new_name.stat().st_mtime)
     target = fqfn / timestamp.strftime('%Y-%m-%d_%H:%M:%S')
     print('      moving temp file into new structure as %r' % target.filename, end=' ... ')
@@ -342,7 +356,7 @@ def file_to_folder(fqfn):
         print('ok')
     else:
         print('FAILED')
-        abort('unable to move %r into %r' % (new_name.filename, target))
+        abort('unable to move %r into %r' % (new_name.filename, target), Exit.IoError)
 
 def get_latest_file(target):
     """
@@ -370,13 +384,13 @@ def get_paths(dst, filename=None):
     elif dst.count('/') == 3:
         table_name, record_name, field_name, leaf = dst.split('/')
     else:
-        abort('invalid path: %r' % (dst, ))
+        abort('invalid path: %r' % (dst, ), Exit.InvalidPath)
     oe_table = openerp.get_model(table_name)
     if '=' in record_name:
         try:
             table_field, field_value = record_name.split('=')
         except ValueError:
-            abort('invalid record name %r' % record_name)
+            abort('invalid record name %r' % record_name, Exit.DataError)
     else:
         table_field = oe_table._rec_name
         field_value = record_name
@@ -387,9 +401,9 @@ def get_paths(dst, filename=None):
                 fields=['fnxfs_folder',table_field]
                 )])
     if not records:
-        abort('unable to find %s with %s=%r' % (oe_table._description, table_field, field_value))
+        abort('unable to find %s with %s=%r' % (oe_table._description, table_field, field_value), Exit.DataError)
     elif len(records) > 1:
-        abort('too many records found with %s=%r' % (table_field, field_value))
+        abort('too many records found with %s=%r' % (table_field, field_value), Exit.DataError)
     [stem] = records
     root = oe_table._fnxfs_root
     trunk = oe_table._fnxfs_path
@@ -398,7 +412,7 @@ def get_paths(dst, filename=None):
         try:
             branch = oe_table._all_columns[field_name].path
         except KeyError:
-            abort('invalid field %r' % (field_name, ))
+            abort('invalid field %r' % (field_name, ), Exit.DataError)
         path = Path(root) / trunk / branch
         return [path/stem/leaf]
     else:

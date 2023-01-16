@@ -3,6 +3,7 @@ import logging
 import re
 from openerp.exceptions import ERPError
 from osv import fields
+from pdfrw import PdfReader
 from requests.utils import quote
 from xaml import Xaml
 
@@ -60,6 +61,9 @@ class files(fields.function):
 
 
     def _search_files(self, model, cr, uid, obj=None, name=None, domain=None, context=None):
+        """
+        support searching file names
+        """
         records = model.read(cr, uid, [(1,'=',1)], fields=['id', name], context=context)
         field, op, criterion = domain[0]
         ids = []
@@ -86,6 +90,9 @@ class files(fields.function):
         return [('id','in',ids)]
 
     def show_images(self, model, cr, uid, ids, base_url, context=None):
+        """
+        construct html fragment to show files as images
+        """
         res = {}
         #
         # get on-disk file path
@@ -124,7 +131,11 @@ class files(fields.function):
                     % (model._name, self._field_name, id)
                     )
             #
-            display_files = self.get_and_sort_files(base_path/disk_folder, keep=lambda f: f.ext.endswith(('.png','.jpg')))
+            display_files = [
+                    t[0]
+                    for t in self.get_and_sort_files(
+                            base_path/disk_folder, keep=lambda f: f.ext.endswith(('.png','.jpg'))
+                            )]
             safe_files = [quote(f, safe='') for f in display_files]
             res[id] = template.string(
                     download=base_url + '/image',
@@ -137,6 +148,9 @@ class files(fields.function):
         return res
 
     def show_list(self, model, cr, uid, ids, base_url, context=None):
+        """
+        construct html fragment to show files as file names (allow uploading/deletion)
+        """
         res = {}
         #
         template = Xaml(file_list).document.pages[0]
@@ -176,7 +190,7 @@ class files(fields.function):
                     % (model._name, self._field_name, id)
                     )
             display_files = self.get_and_sort_files(base_path/disk_folder)
-            safe_files = [quote(f, safe='') for f in display_files]
+            safe_files = [quote(f, safe='') for (f, k) in display_files]
             res[id] = template.string(
                     download=base_url + '/download',
                     path=leaf_path,
@@ -189,6 +203,9 @@ class files(fields.function):
         return res
 
     def show_static_list(self, model, cr, uid, ids, base_url, context=None):
+        """
+        construct html fragment to show files as file names (do not allow uploading/deletion)
+        """
         res = {}
         #
         template = Xaml(static_file_list).document.pages[0]
@@ -218,7 +235,7 @@ class files(fields.function):
                     % (model._name, self._field_name, id)
                     )
             display_files = self.get_and_sort_files(base_path/disk_folder)
-            safe_files = [quote(f, safe='') for f in display_files]
+            safe_files = [quote(f, safe='') for (f, k) in display_files]
             res[id] = template.string(
                     download=base_url + '/download',
                     path=leaf_path,
@@ -230,6 +247,9 @@ class files(fields.function):
         return res
 
     def get(self, cr, model, ids, name, uid=False, context=None, values=None):
+        """
+        return appropriate html fragment
+        """
         if isinstance(ids, (int, long)):
             ids = [ids]
         if not ids:
@@ -246,22 +266,36 @@ class files(fields.function):
         for target in files:
             current = target/'current'
             if target.isfile():
-                sorted_files.append(target.filename)
+                sorted_files.append((target.filename, self._get_keywords(target)))
             elif not target.isdir():
                 _logger.error('unable to handle disk entry %r', target)
             elif current.exists():
-                sorted_files.append(target.filename)
+                sorted_files.append((target.filename, self._get_keywords(target)))
+        print('returning', sorted_files)
         return sorted_files
+
+    def _get_keywords(self, filename):
+        """
+        return keywords stored in pdf files (other file types ignored)
+        """
+        keywords = ''
+        if filename.ext.lower() == '.pdf':
+            try:
+                keywords = PdfReader(filename)['/Info'].get('/Keywords') or ''
+            except Exception:
+                _logger.exception('unable to extract keywords from %r', filename)
+        return keywords
+
 
 
 file_list = '''
 ~div
     -if args.display_files:
         ~ul
-            -for wfile, dfile in zip(args.web_files, args.display_files):
+            -for wfile, (dfile, dkeys) in zip(args.web_files, args.display_files):
                 -path = '%s?path=%s&folder=%s&file=%s' % (args.download, args.path, args.folder, wfile)
                 ~li
-                    ~a href=path target='_blank': =dfile
+                    ~a href=path target='_blank' title=dkeys: =dfile
         ~br
     -if args.permissions == 'write/unlink':
         ~a href=args.select target='_blank': Add/Delete files...
@@ -275,10 +309,10 @@ static_file_list = '''
 ~div
     -if args.display_files:
         ~ul
-            -for wfile, dfile in zip(args.web_files, args.display_files):
+            -for wfile, (dfile, dkeys) in zip(args.web_files, args.display_files):
                 -path = '%s?path=%s&folder=%s&file=%s' % (args.download, args.path, args.folder, wfile)
                 ~li
-                    ~a href=path target='_blank': =dfile
+                    ~a href=path target='_blank' title=dkeys: =dfile
 '''
 
 image_list = '''

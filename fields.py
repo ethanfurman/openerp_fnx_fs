@@ -59,16 +59,28 @@ class files(fields.function):
         self.path = path
         self.style = func
 
-
     def _search_files(self, model, cr, uid, obj=None, name=None, domain=None, context=None):
         """
         support searching file names
         """
-        records = model.read(cr, uid, [(1,'=',1)], fields=['id', name], context=context)
+        leaf_path = Path(model._fnxfs_path)/self.path           # model path / field path
+        base_path = model._fnxfs_root / leaf_path               # anchored path / model path / field path
+        records = model.read(
+                cr, uid, [(1,'=',1)],
+                fields=['id', 'fnxfs_folder'],
+                context=context,
+                )
+        # records = model.read(cr, uid, [(1,'=',1)], fields=['id', name], context=context)
         field, op, criterion = domain[0]
         ids = []
         for rec in records:
-            data = rec[field]
+            folder = rec['fnxfs_folder']
+            if not folder:
+                data = ''
+            else:
+                disk_folder = folder.replace('/', '%2f')
+                files = self.get_and_sort_files(base_path/disk_folder)
+                data = ' '.join(["%s=%s" % (f, k) for f, k in files])
             if criterion is False:
                 # is set / is not set
                 if not data or empty_list.match(data) or empty_image.match(data):
@@ -77,13 +89,13 @@ class files(fields.function):
                 # = and != don't make sense, convert to contains
                 if op == '=':
                     op = 'ilike'
-                else:
+                elif op == '!=':
                     op = 'not ilike'
             if op == '=' and data == criterion:
                 ids.append(rec['id'])
             elif op == '!=' and data != criterion:
                 ids.append(rec['id'])
-            elif op == 'ilike' and criterion.lower() in data.lower():
+            elif op == 'ilike' and (criterion.lower() in data.lower()):
                 ids.append(rec['id'])
             elif op == 'not ilike' and criterion.lower() not in data.lower():
                 ids.append(rec['id'])
@@ -271,7 +283,6 @@ class files(fields.function):
                 _logger.error('unable to handle disk entry %r', target)
             elif current.exists():
                 sorted_files.append((target.filename, self._get_keywords(target)))
-        print('returning', sorted_files)
         return sorted_files
 
     def _get_keywords(self, filename):

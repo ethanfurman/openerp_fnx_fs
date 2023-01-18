@@ -293,6 +293,8 @@ class files(fields.function):
         if filename.ext.lower() == '.pdf':
             try:
                 keywords = PdfReader(filename)['/Info'].get('/Keywords') or ''
+                if keywords == '()':
+                    keywords = ''
             except Exception:
                 _logger.exception('unable to extract keywords from %r', filename)
         return keywords

@@ -282,7 +282,7 @@ class files(fields.function):
             elif not target.isdir():
                 _logger.error('unable to handle disk entry %r', target)
             elif current.exists():
-                sorted_files.append((target.filename, self._get_keywords(target)))
+                sorted_files.append((target.filename, self._get_keywords(current)))
         return sorted_files
 
     def _get_keywords(self, filename):
@@ -290,7 +290,7 @@ class files(fields.function):
         return keywords stored in pdf files (other file types ignored)
         """
         keywords = ''
-        if filename.ext.lower() == '.pdf':
+        if filename.ext.lower() == '.pdf' or filename.dirs.ext.lower() == '.pdf':
             try:
                 keywords = PdfReader(filename)['/Info'].get('/Keywords') or ''
                 if keywords == '()':

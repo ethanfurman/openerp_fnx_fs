@@ -1,7 +1,7 @@
 from antipathy import Path
 from datetime import datetime
 from fields import files
-from openerp import ROOT_DIR, CONFIG_DIR, SUPERUSER_ID as SUPERUSER
+from openerp import CONFIG_DIR, VAR_DIR, SUPERUSER_ID as SUPERUSER
 from openerp.exceptions import ERPError
 from osv import osv, fields
 from scription import OrmFile
@@ -19,8 +19,7 @@ CONFIG_ERROR = "Configuration not set; check Settings --> Configuration --> FnxF
 
 SCAN_TICKET_PATH = "/home/openerp/sandbox/var/scans"
 
-fs_root = Path(u'%s/var/openerp/fnxfs/' % ROOT_DIR)
-archive_root = Path(u'%s/var/openerp/fnxfs_archive/' % ROOT_DIR)
+fs_root = Path(u'%s/openerp/fnxfs/' % VAR_DIR)
 
 config = OrmFile('%s/fnx.ini' % CONFIG_DIR, section='fnxfsd')
 
@@ -40,7 +39,6 @@ class fnx_fs(osv.AbstractModel):
     _fnxfs_path = ''
     _fnxfs_path_fields = []
     _fnxfs_root = fs_root
-    _fnxfs_archive = archive_root
     _fnxfs_tables = set()
 
     # to support auto scan attachments

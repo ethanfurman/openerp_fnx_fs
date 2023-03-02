@@ -7,6 +7,7 @@ Various utilities for managing fnx_fs attached files.
 from __future__ import print_function
 from antipathy import Path
 from datetime import datetime, timedelta
+from filecmp import cmp as filecmp
 from scription import *
 from openerplib import get_connection
 from tempfile import mkstemp
@@ -98,7 +99,7 @@ def file_paths(table=None, field=None, sort='field'):
                 elif sort == 'display':
                     lines.sort(key=lambda l: l[1])
                 else:
-                    abort('unknown sort option %r' % (sort, ))
+                    abort('unknown sort option %r' % (sort, ), Exit.DataError)
                 lines[0][0] = table_name
                 rows.extend(lines)
     echo(rows, border='table', table_header=False)
@@ -115,25 +116,25 @@ def list_files(path):
     if dst.count('/') == 2:
         table_name, record_name, field_name = dst.split('/', 2)
     else:
-        abort('invalid path: %r' % (dst, ))
+        abort('invalid path: %r' % (dst, ), Exit.InvalidPath)
     oe_table = openerp.get_model(table_name)
     if '=' in record_name:
         try:
             table_field, field_value = record_name.split('=')
         except ValueError:
-            abort('invalid record name %r' % record_name)
+            abort('invalid record name %r' % record_name, Exit.DataError)
     else:
         table_field = oe_table._rec_name
         field_value = record_name
     records = oe_table.read([(table_field,'=',field_value)], fields=['fnxfs_folder',table_field])
     if not records:
-        abort('unable to find %s with %s=%r' % (oe_table._description, table_field, field_value))
+        abort('unable to find %s with %s=%r' % (oe_table._description, table_field, field_value), Exit.DataError)
     root = oe_table._fnxfs_root
     trunk = oe_table._fnxfs_path
     try:
         branch = oe_table._all_columns[field_name].path
     except KeyError:
-        abort('invalid field %r' % (field_name, ))
+        abort('invalid field %r' % (field_name, ), Exit.DataError)
     path = Path(root) / trunk / branch
     for record in records:
         stem = record.fnxfs_folder
@@ -184,6 +185,9 @@ def prune(table=None, field=None):
         field=Spec('field to check', ),
         )
 def leafs(state=None, table=None, field=None):
+    """
+    show on-disk folders with files (STATE=alive), or without (STATE=dead)
+    """
     info = openerp.get_model('fnx_fs.fs', transient=True).fnxfs_table_info()
     for table_name, fields in sorted(info.items()):
         if table is None or table == table_name:
@@ -203,8 +207,9 @@ def leafs(state=None, table=None, field=None):
 @Command(
         src=('file to copy', REQUIRED, 's', Path),
         dst=('where to put it (and possibly new name)', REQUIRED, 'd', Path),
+        max_copies=('how many archived copies to keep', OPTION, 'max', int),
         )
-def cp(src, dst):
+def cp(src, dst, max_copies):
     """
     copy file into FnxFS structure
 
@@ -217,103 +222,102 @@ def cp(src, dst):
     try:
         OPENERP = tuple(pwd.getpwnam('openerp')[2:4])
     except KeyError:
-        abort("user 'openerp' does not exist")
+        abort("user 'openerp' does not exist", Exit.NoUser)
     print('openerp ids:', OPENERP)
     if not src.exists():
-        abort('does not exist: %r' % (src, ))
-    dst = dst.strip('/')
-    if dst.count('/') == 2:
-        table_name, record_name, field_name = dst.split('/', 2)
-        leaf = src.filename
-    elif dst.count('/') == 3:
-        table_name, record_name, field_name, leaf = dst.split('/', 3)
-    else:
-        abort('invalid path: %r' % (dst, ))
-    oe_table = openerp.get_model(table_name)
-    if '=' in record_name:
-        try:
-            table_field, field_value = record_name.split('=')
-        except ValueError:
-            abort('invalid record name %r' % record_name)
-    else:
-        table_field = oe_table._rec_name
-        field_value = record_name
-    records = oe_table.read([(table_field,'=',field_value)], fields=['fnxfs_folder',table_field])
-    if not records:
-        abort('unable to find %s with %s=%r' % (oe_table._description, table_field, field_value))
-    root = oe_table._fnxfs_root
-    trunk = oe_table._fnxfs_path
-    try:
-        branch = oe_table._all_columns[field_name].path
-    except KeyError:
-        abort('invalid field %r' % (field_name, ))
-    path = Path(root) / trunk / branch
-    for record in records:
-        print('processing %r' % record[table_field])
-        stem = record.fnxfs_folder
-        dst = path / stem / leaf
-        print('  initial destination %r' % dst)
-        if not dst.parent.exists():
-            dst.parent.mkdir()
-        if not dst.exists():
+        abort('does not exist: %r' % (src, ), Exit.MissingFile)
+    for fqfn in get_paths(dst):
+        print('  initial destination %r' % fqfn)
+        if not fqfn.parent.exists():
+            fqfn.parent.mkdir()
+            chown(fqfn.parent)
+        if not fqfn.exists():
             print('  using name as-is', end=' ... ')
             # this is the first copy of this name, keep as-is
-            src.copy(dst)
-            if dst.exists():
+            src.copy(fqfn)
+            if fqfn.exists():
                 print('ok\ndone')
             else:
                 print('FAILED')
-                abort('  file not copied')
-            chown(dst)
+                abort('  file not copied', Exit.IoError)
+            chown(fqfn)
             continue
-        if not dst.isdir():
+        if not fqfn.isdir():
             # simple file exists, need to convert to a directory structure
             print('  file already exists, converting to directory archive')
-            nfd, new_name = mkstemp(suffix='.tmp', prefix=dst.filename, dir=dst.dirname)
-            os.close(nfd)
-            new_name = Path(new_name)
-            print('      renaming existing file to %r' % new_name.filename, end=' ... ')
-            dst.move(new_name)
-            if new_name.exists():
-                print('ok')
-            else:
-                print('FAILED')
-                abort('failed to move existing file %r to %r' % (dst, new_name))
-            print('      creating directory archive', end=' ... ')
-            dst.mkdir()
-            if dst.exists():
-                print('ok')
-            else:
-                print('FAILED')
-                abort('unable to create directory %r' % dst)
-            timestamp = datetime(1970, 1, 1) + timedelta(seconds=new_name.stat().st_mtime)
-            target = dst / timestamp.strftime('%Y-%m-%d_%H:%M:%S')
-            print('      moving temp file into new structure as %r' % target.filename, end=' ... ')
-            new_name.move(target)
+            file_to_folder(fqfn)
+        # directory structure exists, check for duplication
+        if not is_duplicate(src, fqfn):
+            # calculate name of new entry
+            timestamp = datetime(1970, 1, 1) + timedelta(seconds=src.stat().st_mtime)
+            target = fqfn / timestamp.strftime('%Y-%m-%d_%H:%M:%S')
+            print('  copying %r into %r as %r' % (src, fqfn, target.filename), end=' ... ')
+            src.copy(target)
             if target.exists():
                 print('ok')
             else:
                 print('FAILED')
-                abort('unable to move %r into %r' % (new_name.filename, target))
-        # directory structure exists, calculate name of new entry
-        timestamp = datetime(1970, 1, 1) + timedelta(seconds=src.stat().st_mtime)
-        target = dst / timestamp.strftime('%Y-%m-%d_%H:%M:%S')
-        print('  copying %r into %r as %r' % (src, dst, target.filename), end=' ... ')
-        src.copy(target)
-        if target.exists():
-            print('ok')
-        else:
-            print('FAILED')
-            abort('unable to copy %s to %r as %r' % (src, dst, target.filename))
-        if dst.lexists('current'):
-            dst.unlink('current')
-        if dst.lexists('current'):
-            abort('file copied, unable to remove %r' % (dst/'current'))
-        target.filename.symlink(dst/'current')
-        if not dst.exists('current'):
-            abort('file copied, unable to add %r' % (dst/'current'))
-        chown(dst)
+                abort('unable to copy %s to %r as %r' % (src, fqfn, target.filename), Exit.IoError)
+            chown(target)
+            if fqfn.lexists('current'):
+                fqfn.unlink('current')
+            if fqfn.lexists('current'):
+                abort('file copied, unable to remove %r' % (fqfn/'current'), Exit.IoError)
+            target.filename.symlink(fqfn/'current')
+            if not fqfn.exists('current'):
+                abort('file copied, unable to add %r' % (fqfn/'current'), Exit.IoError)
+            chown(fqfn)
+        if max_copies:
+            # remove excess files
+            candidates = [c for c in fqfn.glob('*') if not c.endswith('/current')]
+            if len(candidates) > max_copies:
+                _logger.info('removing excess copies of %s', fqfn)
+                candidates.sort()
+                candidates = candidates[:-max_copies]
+                deleted = 0
+                for c in candidates:
+                    try:
+                        c.unlink()
+                    except OSError:
+                        error('unable to remove %s' % c)
 
+
+@Command(
+        dir=('directory to display', REQUIRED, 's', Path),
+        )
+def ls(dir):
+    """
+    show files in DIR
+
+    dir -> table.name/record_specifier/field
+    """
+    for path in get_paths(dir):
+        echo(path)
+        if path.exists():
+            echo('  %s' % '\n  '.join(path.listdir()))
+
+@Command(
+        filename=('file to remove', REQUIRED, 'f', Path),
+        )
+def rm(filename):
+    """
+    filename -> table.name/record_specifier/field/filename.ext
+    """
+    for target in get_paths(filename):
+        if not target.exists():
+            abort('no such file', Exit.MissingFile)
+        if not target.isdir():
+            file_to_folder(target)
+            # CURRENT hasn't been linked, so we're done
+        else:
+            # make sure CURRENT does not exist
+            if target.exists('current'):
+                target.unlink('current')
+            if target.exists('current'):
+                abort('unable to remove "%s"' % (target/current, ), Exit.IoError)
+
+
+#helpers
 
 def chown(dst):
     if not IS_ROOT:
@@ -326,5 +330,134 @@ def chown(dst):
         print('         ownership is', owner)
     print('  done')
 
+def file_to_folder(fqfn):
+    nfd, new_name = mkstemp(suffix='.tmp', prefix=fqfn.filename, dir=fqfn.dirname)
+    os.close(nfd)
+    new_name = Path(new_name)
+    print('      renaming existing file to %r' % new_name.filename, end=' ... ')
+    fqfn.move(new_name)
+    if new_name.exists():
+        print('ok')
+    else:
+        print('FAILED')
+        abort('failed to move existing file %r to %r' % (fqfn, new_name), Exit.IoError)
+    print('      creating directory archive', end=' ... ')
+    fqfn.mkdir()
+    if fqfn.exists():
+        print('ok')
+    else:
+        print('FAILED')
+        abort('unable to create directory %r' % fqfn, Exit.IoError)
+    timestamp = datetime(1970, 1, 1) + timedelta(seconds=new_name.stat().st_mtime)
+    target = fqfn / timestamp.strftime('%Y-%m-%d_%H:%M:%S')
+    print('      moving temp file into new structure as %r' % target.filename, end=' ... ')
+    new_name.move(target)
+    if target.exists():
+        print('ok')
+    else:
+        print('FAILED')
+        abort('unable to move %r into %r' % (new_name.filename, target), Exit.IoError)
+
+def get_latest_file(target):
+    """
+    return latest file in target directery, omitting `current` symbolic link
+    """
+    print('getting latest file from %r' % target, verbose=2)
+    files = [f for f in target.listdir() if f != 'current']
+    print('  found: %r' % files, verbose=2)
+    if not files:
+        print('  returning: None', verbose=2)
+        return None
+    files.sort()
+    print('  returning: %r' % (target/files[-1], ), verbose=2)
+    return target/files[-1]
+
+def get_paths(dst, filename=None):
+    dst = dst.strip('/')
+    if dst.count('/') == 1:
+        table_name, record_name = dst.split('/')
+        field_name = leaf = None
+    elif dst.count('/') == 2:
+        table_name, record_name, field_name = dst.split('/')
+        if filename:
+            leaf = filename
+    elif dst.count('/') == 3:
+        table_name, record_name, field_name, leaf = dst.split('/')
+    else:
+        abort('invalid path: %r' % (dst, ), Exit.InvalidPath)
+    oe_table = openerp.get_model(table_name)
+    if '=' in record_name:
+        try:
+            table_field, field_value = record_name.split('=')
+        except ValueError:
+            abort('invalid record name %r' % record_name, Exit.DataError)
+    else:
+        table_field = oe_table._rec_name
+        field_value = record_name
+    records = set([
+            r.fnxfs_folder
+            for r in oe_table.read(
+                [(table_field,'=',field_value)],
+                fields=['fnxfs_folder',table_field]
+                )])
+    if not records:
+        abort('unable to find %s with %s=%r' % (oe_table._description, table_field, field_value), Exit.DataError)
+    elif len(records) > 1:
+        abort('too many records found with %s=%r' % (table_field, field_value), Exit.DataError)
+    [stem] = records
+    root = oe_table._fnxfs_root
+    trunk = oe_table._fnxfs_path
+    if field_name is not None:
+        # return paths for specific files in specific record
+        try:
+            branch = oe_table._all_columns[field_name].path
+        except KeyError:
+            abort('invalid field %r' % (field_name, ), Exit.DataError)
+        path = Path(root) / trunk / branch
+        return [path/stem/leaf]
+    else:
+        # return paths for specific record
+        branches = []
+        for column in oe_table._all_columns.values():
+            try:
+                branches.append(column.path)
+            except AttributeError:
+                pass
+        path = Path(root) / trunk
+        return [
+                path/branch/stem
+                for branch in branches
+                ]
+
+def is_duplicate(fn, dst):
+    """
+    return False if fn is not identical with the last file in dst
+
+    if file is a duplicate, adjust CURRENT link in dst to latest file
+    """
+    print('checking if %r == %r' % (fn, dst), verbose=2)
+    dfn = get_latest_file(dst)
+    print('  latest file: %r' % dfn, verbose=2)
+    if not dfn or not filecmp(fn, dfn):
+        print('  returning False')
+        return False
+    # files are the same, make sure CURRENT points to dfn
+    current = dst / 'current'
+    print('  checking current of: %r' % current, verbose=2)
+    print('  with value of: %r' % (current.lexists() and current.readlink() or ''), verbose=2)
+    if current.lexists() and current.readlink() == dfn.filename:
+        print('  returning True', verbose=2)
+        return True
+    elif current.lexists():
+        print('  removing old current', verbose=2)
+        dst.unlink('current')
+    print('  creating new current with: %r' % (dfn.filename, ), verbose=2)
+    dfn.filename.symlink(dst/'current')
+    print('  returning True')
+    return True
+
+
+
+# do it
 
 Main()

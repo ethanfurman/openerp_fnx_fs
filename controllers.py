@@ -64,6 +64,7 @@ class FnxFS(Controller):
         target_path_file /= path
         target_path_file /= folder.replace('/', '%2f')
         target_path_file /= file.replace('/', '%2f')
+        filename = target_path_file.filename
         if target_path_file.isdir():
             target_path_file /= 'current'
         try:
@@ -72,7 +73,7 @@ class FnxFS(Controller):
             return request.make_response(
                     file_data,
                     headers=[
-                        ('Content-Disposition',  content_disposition(target_path_file.filename, request)),
+                        ('Content-Disposition',  content_disposition(filename, request)),
                         ('Content-Type', guess_type(file)[0] or 'octet-stream'),
                         ('Content-Length', len(file_data)),
                         ],
@@ -124,6 +125,7 @@ class FnxFS(Controller):
         target_path_file /= path
         target_path_file /= folder.replace('/', '%2f')
         target_path_file /= file.replace('/', '%2f')
+        filename = target_path_file.filename
         if target_path_file.isdir():
             target_path_file /= 'current'
         try:
@@ -132,7 +134,7 @@ class FnxFS(Controller):
             return request.make_response(
                     file_data,
                     headers=[
-                        ('Content-Disposition',  content_disposition(target_path_file.filename, request)),
+                        ('Content-Disposition',  content_disposition(filename, request)),
                         ('Content-Type', guess_type(file)[0] or 'octet-stream'),
                         ('Content-Length', len(file_data)),
                         ],

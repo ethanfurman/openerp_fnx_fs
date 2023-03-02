@@ -46,7 +46,7 @@ class files(fields.function):
             self.sort = lambda f: f.stat().st_mtime
         elif sort in ('time asc', 'oldest'):
             self.sort = lambda f: -f.stat().st_mtime
-            self.revrse = True
+            self.reverse = True
         elif sort is None:
             raise ERPError(
                     "sort must be 'alpha' or a function that takes a fully-qualified file name as an argument (not %r)"
@@ -54,6 +54,7 @@ class files(fields.function):
                     )
         else:
             self.sort = sort
+            self.reverse = False
         super(files, self).__init__(False, readonly=True, type='html', fnct_search=self._search_files, **kwds)
         self.path = path
         self.style = func

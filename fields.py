@@ -147,7 +147,7 @@ class files(fields.function):
             display_files = [
                     t[0]
                     for t in self.get_and_sort_files(
-                            base_path/disk_folder, keep=lambda f: f.ext.endswith(('.png','.jpg'))
+                            base_path/disk_folder, keep=lambda f: f.ext.endswith(('.png','.jpg','.img'))
                             )]
             safe_files = [quote(f, safe='') for f in display_files]
             res[id] = template.string(

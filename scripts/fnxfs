@@ -7,13 +7,13 @@ Various utilities for managing fnx_fs attached files.
 from __future__ import print_function
 from antipathy import Path
 from datetime import datetime, timedelta
-from filecmp import cmp as filecmp
 from scription import *
 from openerplib import get_connection
 from tempfile import mkstemp
 
 import os
 import pwd
+import stat
 
 CONFIG = Path('/%s/config/fnx.ini' % os.environ['VIRTUAL_ENV'])
 
@@ -92,7 +92,7 @@ def file_paths(table=None, field=None, sort='field'):
             rows.append(None)
             lines = []
             for f in fields:
-                lines.append([None, f.db_name, f.name, f.path])
+                lines.append([None, f.name, f.display, f.path])
             if lines:
                 if sort == 'field':
                     lines.sort(key=lambda l: l[0])
@@ -278,8 +278,10 @@ def cp(src, dst, max_copies):
                 for c in candidates:
                     try:
                         c.unlink()
+                        deleted += 1
                     except OSError:
                         error('unable to remove %s' % c)
+                print('%d copies removed' % deleted)
 
 
 @Command(
@@ -314,7 +316,7 @@ def rm(filename):
             if target.exists('current'):
                 target.unlink('current')
             if target.exists('current'):
-                abort('unable to remove "%s"' % (target/current, ), Exit.IoError)
+                abort('unable to remove "%s"' % (target/'current', ), Exit.IoError)
 
 
 #helpers
@@ -455,6 +457,33 @@ def is_duplicate(fn, dst):
     dfn.filename.symlink(dst/'current')
     print('  returning True')
     return True
+
+BUFSIZE=8*1024
+
+def filecmp(f1, f2):
+    """
+    Compare two files.
+    """
+    s1 = _sig(os.stat(f1))
+    s2 = _sig(os.stat(f2))
+    if s1[0] != stat.S_IFREG or s2[0] != stat.S_IFREG:
+        return False
+    #
+    with open(f1, 'rb') as fp1, open(f2, 'rb') as fp2:
+        while True:
+            b1 = fp1.read(BUFSIZE)
+            b2 = fp2.read(BUFSIZE)
+            if b1 != b2:
+                return False
+            if not b1:
+                return True
+
+def _sig(st):
+    return (
+            stat.S_IFMT(st.st_mode),
+            st.st_size,
+            st.st_mtime,
+            )
 
 
 

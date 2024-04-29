@@ -91,8 +91,9 @@ def file_paths(table=None, field=None, sort='field'):
         if table is None or table == table_name:
             rows.append(None)
             lines = []
-            for f in fields:
-                lines.append([None, f.name, f.display, f.path])
+            for f in fields.values():
+                if not isinstance(f, basestring):
+                    lines.append([None, f.name, f.display, f.path])
             if lines:
                 if sort == 'field':
                     lines.sort(key=lambda l: l[0])
@@ -213,7 +214,7 @@ def cp(src, dst, max_copies):
     """
     copy file into FnxFS structure
 
-    dst -> table.name/record_specifier/field/filename.ext
+    dst -> table.name/record_specifier/field [/filename.ext]
     """
     global OPENERP, IS_ROOT
     print('\n%s' % datetime.now())
@@ -226,7 +227,7 @@ def cp(src, dst, max_copies):
     print('openerp ids:', OPENERP)
     if not src.exists():
         abort('does not exist: %r' % (src, ), Exit.MissingFile)
-    for fqfn in get_paths(dst):
+    for fqfn in get_paths(dst, filename=src.basename):
         print('  initial destination %r' % fqfn)
         if not fqfn.parent.exists():
             fqfn.parent.mkdir()
@@ -383,6 +384,8 @@ def get_paths(dst, filename=None):
         table_name, record_name, field_name = dst.split('/')
         if filename:
             leaf = filename
+        else:
+            raise ValueError('destination filename not found/specified')
     elif dst.count('/') == 3:
         table_name, record_name, field_name, leaf = dst.split('/')
     else:
@@ -416,7 +419,10 @@ def get_paths(dst, filename=None):
         except KeyError:
             abort('invalid field %r' % (field_name, ), Exit.DataError)
         path = Path(root) / trunk / branch
-        return [path/stem/leaf]
+        if leaf is None:
+            return [path/stem]
+        else:
+            return [path/stem/leaf]
     else:
         # return paths for specific record
         branches = []

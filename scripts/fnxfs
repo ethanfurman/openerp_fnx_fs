@@ -295,7 +295,7 @@ def ls(dir):
     dir -> table.name/record_specifier/field
     """
     for path in get_paths(dir, filename=False):
-        echo(path)
+        print(path)
         if path.exists():
             echo('  %s' % '\n  '.join(path.listdir()))
 

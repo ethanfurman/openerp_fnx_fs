@@ -294,7 +294,7 @@ def ls(dir):
 
     dir -> table.name/record_specifier/field
     """
-    for path in get_paths(dir):
+    for path in get_paths(dir, filename=False):
         echo(path)
         if path.exists():
             echo('  %s' % '\n  '.join(path.listdir()))
@@ -384,6 +384,8 @@ def get_paths(dst, filename=None):
         table_name, record_name, field_name = dst.split('/')
         if filename:
             leaf = filename
+        elif filename is False:
+            leaf = None
         else:
             raise ValueError('destination filename not found/specified')
     elif dst.count('/') == 3:

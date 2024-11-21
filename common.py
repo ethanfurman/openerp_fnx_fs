@@ -32,7 +32,7 @@ def use_archive(path):
     return True
 
 def delete_file(path):
-    if use_archive:
+    if use_archive(path):
         (path/'current').unlink()
 
 def read_file(path, bin_size=False, binary=False):

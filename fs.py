@@ -120,7 +120,7 @@ class fnx_fs(osv.AbstractModel):
                             '\n'.join(['%s: %r' % (f, rec[f]) for f in self._fnxfs_path_fields])
                             )
             if not actual or actual != should_be:
-                self.write(cr, uid, rec['id'], {'fnxfs_folder': should_be}, context=context)
+                super(fnx_fs, self).write(cr, uid, rec['id'], {'fnxfs_folder': should_be}, context=context)
             for field_name, field_column in zip(field_names, columns):
                 base_path = self._fnxfs_root / self._fnxfs_path / field_column.path
                 if actual and actual != should_be:

@@ -23,6 +23,7 @@ fs_root = Path(u'%s/openerp/fnxfs/' % VAR_DIR)
 
 config = OrmFile('%s/fnx.ini' % CONFIG_DIR, section='fnxfsd')
 
+## tables
 
 class fnx_fs(osv.AbstractModel):
     _name = 'fnx_fs.fs'
@@ -243,7 +244,7 @@ class fnx_fs(osv.AbstractModel):
                 for r in self.read(cr, uid, ids, fields=['fnxfs_folder'], context=context)
                 ]
         if super(fnx_fs, self).unlink(cr, uid, ids, context=context):
-            # figure out which folders should still exist
+            # figure out which folders should still exist (multiple records may have been using the same folder)
             should_exist = set([
                     r['fnxfs_folder']
                     for r in self.read(cr, uid, [('fnxfs_folder','in',in_danger)], fields=['fnxfs_folder'], context=context)
@@ -254,12 +255,18 @@ class fnx_fs(osv.AbstractModel):
                     if f not in should_exist
                     ]
             base_path = self._fnxfs_root / self._fnxfs_path
+            subdirs = []
+            for fn, fd in self._columns.items():
+                if isinstance(fd, files):
+                    subdirs.append(base_path/fd.path)
             for dead in should_not_exist:
                 dead = dead.replace('/','%2f')
-                try:
-                    base_path.rmtree(dead)
-                except Exception:
-                    _logger.exception('failure deleting %s/%s' % (base_path, dead))
+                for sd in subdirs:
+                    if sd.exists(dead):
+                        try:
+                            sd.rmtree(dead)
+                        except Exception:
+                            _logger.exception('failure deleting %s/%s' % (base_path, dead))
         return True
 
     def fnxfs_folder_name(self, records):

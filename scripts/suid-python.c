@@ -723,8 +723,8 @@ main(int argc, char **argv, char **envp)
     {
         safe_argv[0] = PYTHON2;
         /* Try python in two safe locations and then give up. */
-        execve("/usr/bin/" PYTHON2, safe_argv, new_envp);
         execve("/usr/local/bin/" PYTHON2, safe_argv, new_envp);
+        execve("/usr/bin/" PYTHON2, safe_argv, new_envp);
         fprintf(stderr, "unable to find /usr/local/bin/python2 nor /usr/bin/python2\n");
         exit(72);
     }
@@ -743,6 +743,10 @@ main(int argc, char **argv, char **envp)
         /* Try python in two safe locations and then give up. */
         execve("/usr/local/bin/" PYTHON, safe_argv, new_envp);
         execve("/usr/bin/" PYTHON, safe_argv, new_envp);
+        execve("/usr/local/bin/" PYTHON2, safe_argv, new_envp);
+        execve("/usr/bin/" PYTHON2, safe_argv, new_envp);
+        execve("/usr/local/bin/" PYTHON3, safe_argv, new_envp);
+        execve("/usr/bin/" PYTHON3, safe_argv, new_envp);
         fprintf(stderr, "unable to find /usr/local/bin/python nor /usr/bin/python\n");
         exit(72);
     }

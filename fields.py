@@ -20,7 +20,7 @@ class files(fields.function):
     def __init__(self, path, style='list', sort='alpha', **kwds):
         for setting in (
                 'fnct_inv', 'fnct_inv_arg', 'type', 'fnct_search', 'obj',
-                'store', 'multi', 'readonly', 'manual', 'required', 'domain',
+                'store', 'readonly', 'manual', 'multi', 'required', 'domain',
                 'states', 'change_default', 'size', 'translate',
             ):
             if setting in kwds:
@@ -34,8 +34,13 @@ class files(fields.function):
             func = self.show_static_list
         elif style == 'images':
             func = self.show_images
+        elif style == 'plain':
+            func = self.show_plain
         else:
-            raise ERPError('Configuration Error', 'valid choices for style are "list" and "images", not %r' % (style, ))
+            raise ERPError(
+                    'Configuration Error',
+                    'valid choices for style are "list", "static_list", and "images", not %r' % (style, ),
+                    )
         if sort in ('alpha', 'alpha asc'):
             self.sort = lambda f: f.filename
             self.reverse = False
@@ -56,7 +61,10 @@ class files(fields.function):
         else:
             self.sort = sort
             self.reverse = False
-        super(files, self).__init__(False, readonly=True, type='html', fnct_search=self._search_files, **kwds)
+        if style == 'plain':
+            super(files, self).__init__(False, readonly=True, type='text', fnct_search=self._search_files, **kwds)
+        else:
+            super(files, self).__init__(False, readonly=True, type='html', fnct_search=self._search_files, **kwds)
         self.path = path
         self.style = func
 
@@ -257,6 +265,31 @@ class files(fields.function):
                     web_files=safe_files,
                     select=website_select,
                     )
+        return res
+
+    def show_plain_list(self, model, cr, uid, ids, base_url, context=None):
+        """
+        construct text fragment to show files as file names (do not allow uploading/deletion)
+        """
+        res = {}
+        #
+        leaf_path = Path(model._fnxfs_path)/self.path           # model path / field path
+        base_path = model._fnxfs_root / leaf_path               # anchored path / model path / field path
+        folder_names = model.read(
+                cr, uid, ids,
+                fields=['fnxfs_folder'],
+                context=context,
+                )
+        #
+        for record in folder_names:
+            id = record['id']
+            res[id] = False
+            folder = record['fnxfs_folder']
+            if not folder:
+                continue
+            disk_folder = folder.replace('/', '%2f')
+            display_files = self.get_and_sort_files(base_path/disk_folder)
+            res[id] = '\n'.join(display_files)
         return res
 
     def get(self, cr, model, ids, name, uid=False, context=None, values=None):

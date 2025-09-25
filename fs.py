@@ -48,6 +48,15 @@ class fnx_fs(osv.AbstractModel):
     #       }
 
     def __init__(self, pool, cr):
+        # add _files fields
+        files_columns = {}
+        for name, column in self._columns.items():
+            if isinstance(column, files):
+                files_name = '%s_files' % name
+                files_column[files_name] = new_column = files(column.path, string=column.string + ' (plain)', style='plain')
+                new_column.sort = column.sort
+                new_column.reverese = column.reverse
+        self._columns.update(files_columns)
         super(fnx_fs, self).__init__(pool, cr)
         if not self._fnxfs_path_fields:
             self._fnxfs_path_fields = [self._rec_name]

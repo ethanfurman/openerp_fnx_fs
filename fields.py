@@ -35,7 +35,7 @@ class files(fields.function):
         elif style == 'images':
             func = self.show_images
         elif style == 'plain':
-            func = self.show_plain
+            func = self.show_plain_list
         else:
             raise ERPError(
                     'Configuration Error',
@@ -289,7 +289,7 @@ class files(fields.function):
                 continue
             disk_folder = folder.replace('/', '%2f')
             display_files = self.get_and_sort_files(base_path/disk_folder)
-            res[id] = '\n'.join(display_files)
+            res[id] = '\n'.join(t[0] for t in display_files)
         return res
 
     def get(self, cr, model, ids, name, uid=False, context=None, values=None):

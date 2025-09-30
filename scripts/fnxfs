@@ -314,11 +314,13 @@ def mv(src, dst):
     example:
     mv res.partner/xml_id=012345/order_confirmations/Inv-123456.pdf past_confirmations
     """
+    dst ,= get_paths(src.dirname*'..'/dst, filename=False)
     src ,= get_paths(src)
     if not src.exists():
         abort('no such file', Exit.MissingFile)
-    dst ,= get_paths(src.dirname/'..'/dst, filename=False)
-    src.move(dst)
+    if not dst.exists():
+        dst.mkdir()
+    src.move(dst/src.filename)
 
 
 @Command(

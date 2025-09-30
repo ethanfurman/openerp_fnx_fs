@@ -314,10 +314,11 @@ def mv(src, dst):
     example:
     mv res.partner/xml_id=012345/order_confirmations/Inv-123456.pdf past_confirmations
     """
-    for target in get_paths(filename):
-        if not target.exists():
-            abort('no such file', Exit.MissingFile)
-    
+    src ,= get_paths(src)
+    if not src.exists():
+        abort('no such file', Exit.MissingFile)
+    dst ,= get_paths(src.dirname/'..'/dst, filename=False)
+    src.move(dst)
 
 
 @Command(
@@ -341,7 +342,7 @@ def rm(filename):
                 abort('unable to remove "%s"' % (target/'current', ), Exit.IoError)
 
 
-#helpers
+## helpers
 
 def chown(dst):
     if not IS_ROOT:
@@ -408,7 +409,7 @@ def get_paths(dst, filename=None):
         elif filename is False:
             leaf = None
         else:
-            raise ValueError('destination filename not found/specified')
+            raise ValueError('filename not found/specified')
     elif dst.count('/') == 3:
         table_name, record_name, field_name, leaf = dst.split('/')
     else:

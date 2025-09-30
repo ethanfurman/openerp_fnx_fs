@@ -299,6 +299,27 @@ def ls(dir):
         if path.exists():
             echo('  %s' % '\n  '.join(path.listdir()))
 
+
+@Command(
+        src=('file to move', REQUIRED, 's', Path),
+        dst=('where to put it', REQUIRED, 'd', Path),
+        )
+def mv(src, dst):
+    """
+    move files from one field to another (e.g. invoices -> past_invoices)
+
+    src -> table.name/record_specifier/field/filename.ext
+    dst -> new_field
+
+    example:
+    mv res.partner/xml_id=012345/order_confirmations/Inv-123456.pdf past_confirmations
+    """
+    for target in get_paths(filename):
+        if not target.exists():
+            abort('no such file', Exit.MissingFile)
+    
+
+
 @Command(
         filename=('file to remove', REQUIRED, 'f', Path),
         )

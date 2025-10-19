@@ -109,6 +109,17 @@ def file_paths(table=None, field=None, sort='field'):
 @Command(
         path=Spec('table.name/record_specifier/field', REQUIRED, type=Path),
         )
+def get_path(path):
+    """
+    return on-disk file path
+    """
+    for fqfn in get_paths(path):
+        echo(fqfn)
+
+
+@Command(
+        path=Spec('table.name/record_specifier/field', REQUIRED, type=Path),
+        )
 def list_files(path):
     """
     show files at path, including how many copies of each

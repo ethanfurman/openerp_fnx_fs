@@ -1,4 +1,4 @@
-#!/usr/local/sbin/suid-python --virtualenv
+#!/usr/local/bin/suid-python --virtualenv
 
 """\
 Various utilities for managing fnx_fs attached files.

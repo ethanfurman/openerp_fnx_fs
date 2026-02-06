@@ -51,8 +51,8 @@ class fnx_fs(osv.AbstractModel):
         # add _files fields
         files_columns = {}
         for name, column in self._columns.items():
-            if isinstance(column, files) and name[-5:] != '_files':
-                files_name = '%s_files' % name
+            if isinstance(column, files) and name[-10:] != '_raw_files':
+                files_name = '%s_raw_files' % name
                 files_columns[files_name] = new_column = files(column.path, string=column.string + ' (plain)', style='plain')
                 new_column.sort = column.sort
                 new_column.reverese = column.reverse

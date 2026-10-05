@@ -34,8 +34,10 @@ class fnx_fs(osv.AbstractModel):
     # _fnxfs_path = '...'
     # _fnxfs_path_fields = []
     #
-    # if _fnxfs_path_fields includes any thing besides 'name':
+    # if _fnxfs_path_fields includes any thing besides `_rec_name`:
     # def fnxfs_folder_name(self, records): ...
+    #
+    # if adding to an existing table: `fnxfs initialize <table_name>`
 
     _fnxfs_path = ''
     _fnxfs_path_fields = []
@@ -70,7 +72,7 @@ class fnx_fs(osv.AbstractModel):
             missing = [
                     f
                     for f in self._fnxfs_path_fields
-                    if f not in self._columns
+                    if f not in self._columns and f != 'id'
                     ]
             # check if fields defined in _inherits (combined) class
             for table_name in self._inherits:
